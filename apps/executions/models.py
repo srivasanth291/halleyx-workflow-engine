@@ -25,6 +25,13 @@ class Execution(models.Model):
         on_delete=models.CASCADE,
         related_name='executions',
     )
+    company = models.ForeignKey(
+        'authentication.Company',
+        on_delete=models.CASCADE,
+        related_name='executions',
+        null=True,
+        blank=True,
+    )
     workflow_version = models.PositiveIntegerField()
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='pending')
     data = models.JSONField(default=dict)

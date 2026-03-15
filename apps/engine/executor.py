@@ -110,6 +110,7 @@ class ExecutionEngine:
         # Step 4: Create Execution record
         execution = Execution.objects.create(
             workflow=workflow,
+            company=workflow.company,
             workflow_version=workflow.version,
             status='pending',
             data=input_data,
@@ -488,6 +489,12 @@ class ExecutionEngine:
 
         execution.status = 'in_progress'
         execution.retries += 1
+        execution.iteration_count = 0  # CRITICAL FIX
+        # Reset iteration_count so loop prevention
+        # doesn't immediately fail the retry.
+        # Without this, if execution failed at
+        # max_iterations=10, retry would instantly
+        # fail again since count was already at 10.
         execution.logs = list(execution.logs) + [{
             'action': 'retry',
             'retry_number': execution.retries,
