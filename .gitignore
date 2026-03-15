@@ -1,6 +1,32 @@
+# Environments
 .env
-venv/
+.venv
 env/
+venv/
+ENV/
+
+# Byte-compiled / optimized / DLL files
 __pycache__/
-*.pyc
+*.py[cod]
+*$py.class
+
+# Django stuff:
+*.log
+local_settings.py
 db.sqlite3
+db.sqlite3-journal
+
+# Static/Media
+# static/
+# media/
+
+# OS generated files
+.DS_Store
+Thumbs.db
+ehthumbs.db
+
+# IDEs
+.idea/
+.vscode/
+*.swp
+*.swo
