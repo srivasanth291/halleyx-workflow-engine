@@ -1,0 +1,140 @@
+﻿
+> halleyx-workflow-frontend@1.0.0 build
+> vite build
+
+[36mvite v5.4.21 [32mbuilding for production...[36m[39m
+transforming...
+[32mΓ£ô[39m 11 modules transformed.
+node.exe : 
+[31mx[39m Build 
+failed in 721ms
+At line:1 char:1
++ & "C:\Program Files\
+nodejs/node.exe" 
+"C:\Program 
+Files\nodejs/node_mo 
+...
++ ~~~~~~~~~~~~~~~~~~~~
+~~~~~~~~~~~~~~~~~~~~~~
+~~~~~~~~~~~~~~~~~~~~~~
+~~~~~
+    + CategoryInfo    
+          : NotSpeci  
+  fied: ([31mx[39   
+ m Build failed in    
+ 721ms:String) []    
+, RemoteException
+    + FullyQualifiedE 
+   rrorId : NativeCo  
+  mmandError
+ 
+[31merror during 
+build:
+[31m[vite:vue] 
+[vue/compiler-sfc] 
+Unexpected token, 
+expected "," (34:0)
+
+C:/Users/L E N O V O/O
+neDrive/Desktop/halley
+x-workflow-backend/fro
+ntend/src/views/Execut
+ionView.vue
+190|    return:  
+'Return to Employee',
+191|  
+}[actionType.value] 
+|| '')
+192|  
+   |   ^
+193|  const 
+currentStep = 
+computed(() => {
+   |  ^
+194|    if (!execution
+.value?.current_step_i
+d || !workflow.value?.
+steps) return 
+null[31m
+file: [36mC:/Users/L 
+E N O V O/OneDrive/Des
+ktop/halleyx-workflow-
+backend/frontend/src/v
+iews/ExecutionView.vue
+:34:0[31m
+    at constructor 
+(C:\Users\L E N O V O\
+OneDrive\Desktop\halle
+yx-workflow-backend\fr
+ontend\node_modules\@b
+abel\parser\lib\index.
+js:365:19)
+    at Parser.raise 
+(C:\Users\L E N O V O\
+OneDrive\Desktop\halle
+yx-workflow-backend\fr
+ontend\node_modules\@b
+abel\parser\lib\index.
+js:6599:19)
+    at 
+Parser.unexpected 
+(C:\Users\L E N O V O\
+OneDrive\Desktop\halle
+yx-workflow-backend\fr
+ontend\node_modules\@b
+abel\parser\lib\index.
+js:6619:16)
+    at Parser.expect 
+(C:\Users\L E N O V O\
+OneDrive\Desktop\halle
+yx-workflow-backend\fr
+ontend\node_modules\@b
+abel\parser\lib\index.
+js:6899:12)
+    at Parser.parseCal
+lExpressionArguments 
+(C:\Users\L E N O V O\
+OneDrive\Desktop\halle
+yx-workflow-backend\fr
+ontend\node_modules\@b
+abel\parser\lib\index.
+js:11243:14)
+    at Parser.parseCov
+erCallAndAsyncArrowHea
+d (C:\Users\L E N O V 
+O\OneDrive\Desktop\hal
+leyx-workflow-backend\
+frontend\node_modules\
+@babel\parser\lib\inde
+x.js:11186:29)
+    at 
+Parser.parseSubscript 
+(C:\Users\L E N O V O\
+OneDrive\Desktop\halle
+yx-workflow-backend\fr
+ontend\node_modules\@b
+abel\parser\lib\index.
+js:11120:19)
+    at Parser.parseSub
+scripts (C:\Users\L E 
+N O V O\OneDrive\Deskt
+op\halleyx-workflow-ba
+ckend\frontend\node_mo
+dules\@babel\parser\li
+b\index.js:11094:19)
+    at Parser.parseExp
+rSubscripts 
+(C:\Users\L E N O V O\
+OneDrive\Desktop\halle
+yx-workflow-backend\fr
+ontend\node_modules\@b
+abel\parser\lib\index.
+js:11085:17)
+    at 
+Parser.parseUpdate 
+(C:\Users\L E N O V O\
+OneDrive\Desktop\halle
+yx-workflow-backend\fr
+ontend\node_modules\@b
+abel\parser\lib\index.
+js:11066:21)[39m

@@ -30,3 +30,9 @@ ehthumbs.db
 .vscode/
 *.swp
 *.swo
+
+# Node / Frontend
+node_modules/
+dist/
+npm-debug.log*
+.npm/
