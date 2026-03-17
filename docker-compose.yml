@@ -49,7 +49,7 @@ services:
     volumes:
       - .:/app
     env_file:
-      - config/.env
+      - .env
     environment:
       DJANGO_SETTINGS_MODULE: config.settings.development
       DB_HOST: db
@@ -72,7 +72,7 @@ services:
     volumes:
       - .:/app
     env_file:
-      - config/.env
+      - .env
     environment:
       DJANGO_SETTINGS_MODULE: config.settings.development
       DB_HOST: db
@@ -92,7 +92,7 @@ services:
     volumes:
       - .:/app
     env_file:
-      - config/.env
+      - .env
     environment:
       DJANGO_SETTINGS_MODULE: config.settings.development
       DB_HOST: db
