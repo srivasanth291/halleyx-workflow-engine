@@ -1,288 +1,257 @@
 <template>
-  <div style="max-width:860px;margin:0 auto">
-
-    <!-- Workflow info banner -->
-    <div
-      v-if="workflow"
-      class="card"
-      style="background:var(--accent-green-light);border:1px solid var(--accent-green-border);padding:16px 20px;margin-bottom:20px;display:flex;justify-content:space-between;align-items:center"
-    >
-      <div class="flex items-center gap-3">
-        <span style="font-size:18px;font-weight:700">{{ workflow.name }}</span>
-        <span class="badge badge-indigo">v{{ workflow.version }}</span>
-        <span class="text-sm text-secondary">{{ workflow.steps?.length || 0 }} Steps</span>
+  <div class="execution-page">
+    <div class="flex items-center mb-8 gap-4">
+      <router-link to="/workflows" class="btn-back glass shadow-hover">←</router-link>
+      <div>
+        <h1 class="text-bold m-0" style="font-size: 24px;">Execution Details</h1>
+        <p class="text-gray m-0 text-sm mt-1">ID: <span class="code-font">{{ executionId }}</span></p>
       </div>
-      <div class="flex items-center gap-2">
-        <StatusBadge v-if="execution" :status="execution.status" />
-        <button
-          v-if="execution?.status === 'in_progress'"
-          class="btn btn-ghost btn-sm"
-          style="color:#DC2626;border-color:#DC2626"
-          @click="handleCancel"
-        >✕ Cancel</button>
-      </div>
+      <div class="flex-1"></div>
+      <StatusBadge :status="execStore.currentExecution?.status" />
     </div>
 
-    <!-- INPUT FORM (shown when no execution or after failed) -->
-    <div v-if="!execution || execution.status === 'failed'" class="card card-body" style="margin-bottom:20px">
-      <h3 style="font-size:16px;font-weight:700;margin-bottom:4px">Input Data</h3>
-      <p class="text-sm text-secondary" style="margin-bottom:20px">Fill required fields to execute workflow</p>
+    <div v-if="loading.main" class="text-center p-12"><span class="spinner">🌀</span> Loading...</div>
+    
+    <div v-else-if="execution" class="grid-layout">
+       <!-- LEFT COLUMN -->
+       <div class="flex flex-col gap-6">
+         <!-- Status Card -->
+         <div class="card glass">
+           <h2 class="text-bold text-sm mb-6 uppercase letter-spacing-1">Status Overview</h2>
+           <div class="info-row">
+             <span class="label">Workflow</span>
+             <span class="value">{{ execution.workflow_name }} <span class="v-tag">v{{ execution.workflow_version }}</span></span>
+           </div>
+           <div class="info-row">
+             <span class="label">Started By</span>
+             <span class="value">{{ execution.triggered_by_email }}</span>
+           </div>
+           <div class="info-row">
+             <span class="label">Initiated</span>
+             <span class="value">{{ formatDate(execution.started_at) }}</span>
+           </div>
+           
+           <div class="flex flex-col gap-3 mt-8" v-if="['pending', 'in_progress', 'failed'].includes(execution.status)">
+             <button class="btn btn-danger w-full" v-if="['pending', 'in_progress'].includes(execution.status)" @click="cancelExec">Cancel Execution</button>
+             <button class="btn btn-primary w-full" v-if="execution.status === 'failed'" @click="retryExec">Retry Workflow</button>
+           </div>
+         </div>
 
-      <div v-if="workflow?.input_schema?.fields?.length" style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
-        <div v-for="field in workflow.input_schema.fields" :key="field.name" class="form-group">
-          <label class="form-label">
-            {{ field.name }} <span v-if="field.required" class="req">*</span>
-          </label>
-          <template v-if="field.type === 'boolean'">
-            <div class="toggle-row">
-              <button type="button" class="toggle" :class="{on: inputData[field.name]}" @click="inputData[field.name] = !inputData[field.name]"></button>
-              <span>{{ inputData[field.name] ? 'True' : 'False' }}</span>
-            </div>
-          </template>
-          <template v-else-if="field.allowed_values?.length">
-            <select v-model="inputData[field.name]" class="form-input form-select">
-              <option value="">-- Select --</option>
-              <option v-for="v in field.allowed_values" :key="v" :value="v">{{ v }}</option>
-            </select>
-          </template>
-          <template v-else-if="field.type === 'number'">
-            <input v-model.number="inputData[field.name]" type="number" class="form-input" :placeholder="field.name" />
-          </template>
-          <template v-else>
-            <input v-model="inputData[field.name]" type="text" class="form-input" :placeholder="field.name" />
-          </template>
-        </div>
-      </div>
-      <div v-else class="alert alert-warning" style="margin-top:16px">
-        No input fields defined in workflow schema.
-      </div>
+         <!-- Progress Tracking -->
+         <div class="card glass">
+            <h2 class="text-bold text-sm mb-6 uppercase letter-spacing-1">Step Progress</h2>
+            <StepProgress 
+              :steps="workflowSteps" 
+              :currentStepId="execution.current_step_id" 
+              :logs="execution.logs"
+              :status="execution.status"
+            />
+         </div>
 
-      <div class="form-group" style="margin-top:16px;max-width:200px">
-        <label class="form-label">Max Iterations</label>
-        <input v-model.number="maxIter" type="number" class="form-input" min="1" max="100" />
-        <span class="form-hint">Loop prevention limit (default: 10)</span>
-      </div>
+         <!-- Workflow Map -->
+         <WorkflowChart 
+           :steps="workflowSteps" 
+           :currentStepId="execution.current_step_id" 
+         />
 
-      <div v-if="execError" class="alert alert-error" style="margin-top:16px">{{ execError }}</div>
+         <!-- Input Data -->
+         <div class="card glass">
+           <h2 class="text-bold text-sm mb-4 uppercase letter-spacing-1">Input Data</h2>
+           <div class="code-block glass">
+             <pre>{{ formatJSON(execution.data) }}</pre>
+           </div>
+         </div>
+       </div>
 
-      <button
-        class="btn btn-primary btn-full btn-lg"
-        style="margin-top:20px"
-        :disabled="executing"
-        @click="handleExecute"
-      >
-        <span v-if="executing" class="spinner"></span>
-        {{ executing ? 'Starting...' : '▶ Execute Workflow' }}
-      </button>
-    </div>
+       <!-- RIGHT COLUMN -->
+       <div class="flex flex-col gap-6" style="grid-column: span 2;">
+         <!-- Current Action (If Pending Approval) -->
+         <div v-if="pendingStepInfo" class="card glass action-required">
+           <div class="flex items-center justify-between mb-6">
+               <div>
+                  <h2 class="text-bold m-0" style="font-size: 18px;">Action Required</h2>
+                  <p class="text-sm mt-1 m-0 text-indigo">Pending approval for: <span class="text-bold">{{ pendingStepInfo.step_name }}</span></p>
+               </div>
+               <div class="action-avatar indigo-gradient">!</div>
+           </div>
+           <div class="flex flex-col gap-2 mb-6">
+             <label class="text-sm text-bold mb-1">Response Comments</label>
+             <textarea v-model="approvalComment" class="form-textarea glass" rows="3" placeholder="Add relevant details for your decision..."></textarea>
+           </div>
+           <div class="flex justify-end gap-3">
+             <button class="btn btn-danger" @click="handleAction('reject')" :disabled="loading.action">Reject</button>
+             <button class="btn btn-outlined" @click="handleAction('return_step')" :disabled="loading.action">Return to Previous</button>
+             <button class="btn btn-primary" @click="handleAction('approve')" :disabled="loading.action">Approve & Continue</button>
+           </div>
+         </div>
 
-    <!-- PROGRESS -->
-    <div v-if="execution" class="card card-body" style="margin-bottom:20px">
-      <div class="flex items-center justify-between" style="margin-bottom:20px">
-        <h3 style="font-size:16px;font-weight:700">Execution Progress</h3>
-        <span class="mono text-sm text-muted">{{ execution.id?.slice(0, 12) }}...</span>
-      </div>
-
-      <StepProgress
-        :steps="workflow?.steps || []"
-        :logs="execution.logs || []"
-        :current-step-id="execution.current_step_id"
-      />
-
-      <!-- Approval action panel -->
-      <div
-        v-if="currentStep && currentStep.step_type === 'approval' && execution.status === 'in_progress'"
-        class="action-card approval"
-        style="margin-top:16px"
-      >
-        <div class="flex items-center justify-between">
-          <div>
-            <p style="font-weight:700;color:#1D4ED8;font-size:15px">{{ currentStep.name }}</p>
-            <p class="text-sm" style="color:#3B82F6;margin-top:3px">
-              Waiting for: {{ currentStep.metadata?.assignee_email }}
-            </p>
-          </div>
-          <span class="text-sm text-secondary">⏱ In progress...</span>
-        </div>
-        <div class="flex gap-3" style="margin-top:14px">
-          <button class="btn btn-primary btn-sm" @click="openAction('approve')">✅ Approve</button>
-          <button class="btn btn-danger btn-sm" @click="openAction('reject')">❌ Reject</button>
-          <button class="btn btn-ghost btn-sm" @click="openAction('return')">↩ Return</button>
-        </div>
-      </div>
-
-      <!-- Failed panel -->
-      <div v-if="execution.status === 'failed'" class="action-card failed" style="margin-top:16px">
-        <p style="font-weight:700;color:#DC2626;font-size:15px">❌ Execution Failed</p>
-        <p class="text-sm text-secondary" style="margin-top:4px">{{ lastError }}</p>
-        <div class="flex gap-3" style="margin-top:14px">
-          <button class="btn btn-amber btn-sm" @click="handleRetry">🔄 Retry Failed Step</button>
-        </div>
-      </div>
-
-      <!-- Completed banner -->
-      <div v-if="execution.status === 'completed'" class="alert alert-success" style="margin-top:16px">
-        ✅ Workflow completed successfully!
-      </div>
-    </div>
-
-    <!-- LOGS -->
-    <div v-if="execution" class="card card-body">
-      <h3 style="font-size:16px;font-weight:700;margin-bottom:20px">Execution Logs</h3>
-      <LogTimeline :logs="execution.logs" />
-    </div>
-
-    <!-- Action Comment Modal -->
-    <div v-if="showActionModal" class="modal-backdrop" @click.self="showActionModal = false">
-      <div class="modal modal-sm">
-        <div class="modal-header">
-          <h3>{{ actionLabel }}</h3>
-          <button class="btn-icon" @click="showActionModal = false">✕</button>
-        </div>
-        <div class="modal-body">
-          <div class="form-group">
-            <label class="form-label">Comment (optional)</label>
-            <textarea v-model="actionComment" class="form-input form-textarea" placeholder="Add a comment..."></textarea>
-          </div>
-        </div>
-        <div class="modal-footer">
-          <button class="btn btn-ghost flex-1" @click="showActionModal = false">Cancel</button>
-          <button
-            :class="['btn', 'flex-1', actionType === 'approve' ? 'btn-primary' : actionType === 'reject' ? 'btn-danger' : 'btn-ghost']"
-            @click="confirmAction"
-          >{{ actionLabel }}</button>
-        </div>
-      </div>
+         <!-- Execution Logs -->
+         <div class="card glass flex-1">
+           <h2 class="text-bold text-sm mb-6 uppercase letter-spacing-1">Execution Path</h2>
+           <LogTimeline :logs="execution.logs" />
+         </div>
+       </div>
     </div>
   </div>
 </template>
 
 <script setup>
-import { ref, reactive, computed, onMounted, onUnmounted, watch } from 'vue'
+import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useRoute } from 'vue-router'
-import { useWorkflowStore } from '@/stores/workflow'
 import { useExecutionStore } from '@/stores/execution'
-import { useNotificationStore } from '@/stores/notification'
+import { useWorkflowStore } from '@/stores/workflow'
 import StatusBadge from '@/components/common/StatusBadge.vue'
-import StepProgress from '@/components/execution/StepProgress.vue'
 import LogTimeline from '@/components/execution/LogTimeline.vue'
+import StepProgress from '@/components/execution/StepProgress.vue'
+import WorkflowChart from '@/components/workflow/WorkflowChart.vue'
 
 const route = useRoute()
-const wfStore = useWorkflowStore()
 const execStore = useExecutionStore()
-const notif = useNotificationStore()
+const wfStore = useWorkflowStore()
 
-const workflowId = route.params.id
-const workflow = computed(() => wfStore.currentWorkflow)
+const executionId = computed(() => route.params.id)
 const execution = computed(() => execStore.currentExecution)
+const workflowSteps = ref([])
 
-const inputData = reactive({})
-const maxIter = ref(10)
-const executing = ref(false)
-const execError = ref('')
-const showActionModal = ref(false)
-const actionType = ref('')
-const actionComment = ref('')
+const loading = ref({ main: false, action: false })
+const approvalComment = ref('')
 
-const actionLabel = computed(() => ({
-  approve: 'Approve',
-  reject:  'Reject',
-  return:  'Return to Employee',
-}[actionType.value] || ''))
+let pollInterval = null
 
-const currentStep = computed(() => {
-  if (!execution.value?.current_step_id || !workflow.value?.steps) return null
-  return workflow.value.steps.find(s => s.id === execution.value.current_step_id) || null
-})
-
-const lastError = computed(() => {
-  const logs = execution.value?.logs || []
-  for (let i = logs.length - 1; i >= 0; i--) {
-    if (logs[i].error) return logs[i].error
-  }
-  return 'An error occurred'
-})
-
-let pollTimer = null
-
-watch(() => execution.value?.status, (s) => {
-  if (s === 'in_progress') startPoll()
-  else stopPoll()
-})
-
-function startPoll() {
-  if (pollTimer) return
-  pollTimer = setInterval(async () => {
-    if (execution.value?.id) await execStore.fetchExecution(execution.value.id)
-  }, 3000)
-}
-
-function stopPoll() {
-  if (pollTimer) { clearInterval(pollTimer); pollTimer = null }
-}
-
-onUnmounted(stopPoll)
-
-async function handleExecute() {
-  execError.value = ''
-  for (const f of workflow.value?.input_schema?.fields || []) {
-    if (f.required && (inputData[f.name] === undefined || inputData[f.name] === '' || inputData[f.name] === null)) {
-      execError.value = `"${f.name}" is required`; return
+onMounted(async () => {
+    loading.value.main = true
+    try {
+       const res = await execStore.fetchExecution(executionId.value)
+       if (res && res.workflow) {
+          const wf = await wfStore.fetchWorkflow(res.workflow)
+          workflowSteps.value = wf.steps || []
+       }
+    } finally {
+       loading.value.main = false
     }
-  }
-  executing.value = true
-  try {
-    await execStore.executeWorkflow(workflowId, { ...inputData }, maxIter.value)
-    notif.success('Execution started!')
-    startPoll()
-  } catch (e) {
-    const d = e.response?.data
-    execError.value = d?.detail || JSON.stringify(d) || 'Execution failed'
-  } finally {
-    executing.value = false
-  }
-}
-
-function openAction(type) {
-  actionType.value = type
-  actionComment.value = ''
-  showActionModal.value = true
-}
-
-async function confirmAction() {
-  try {
-    if (actionType.value === 'approve')      await execStore.approveStep(execution.value.id, actionComment.value)
-    else if (actionType.value === 'reject')  await execStore.rejectStep(execution.value.id, actionComment.value)
-    else                                     await execStore.returnStep(execution.value.id, actionComment.value)
-    notif.success('Action recorded!')
-    showActionModal.value = false
-  } catch (e) {
-    notif.error(e.response?.data?.detail || 'Action failed')
-  }
-}
-
-async function handleCancel() {
-  try {
-    await execStore.cancelExecution(execution.value.id)
-    notif.success('Execution canceled!')
-    stopPoll()
-  } catch (e) {
-    notif.error(e.response?.data?.detail || 'Cancel failed')
-  }
-}
-
-async function handleRetry() {
-  try {
-    await execStore.retryExecution(execution.value.id)
-    notif.success('Retrying...')
-    startPoll()
-  } catch (e) {
-    notif.error(e.response?.data?.detail || 'Retry failed')
-  }
-}
-
-onMounted(() => {
-  execStore.currentExecution = null
-  wfStore.fetchWorkflow(workflowId)
+    // Poll every 10s while execution is active
+    pollInterval = setInterval(async () => {
+      const current = execStore.currentExecution
+      if (current && ['pending', 'in_progress'].includes(current.status)) {
+        execStore.fetchExecution(executionId.value)
+      } else {
+        clearInterval(pollInterval)
+      }
+    }, 10000)
 })
+
+onUnmounted(() => clearInterval(pollInterval))
+
+const pendingStepInfo = computed(() => {
+    if (!execution.value) return null
+    if (execution.value.status !== 'in_progress') return null
+    
+    const logs = execution.value.logs || []
+    if (logs.length === 0) return null
+    
+    // Reverse find the last log entry
+    for (let i = logs.length - 1; i >= 0; i--) {
+        if (logs[i].status === 'pending_approval') {
+            return logs[i]
+        }
+        if (['approve', 'reject', 'return'].includes(logs[i].status)) {
+            // Already resolved
+            return null;
+        }
+    }
+    return null
+})
+
+const formatDate = (dateStr) => {
+  if (!dateStr) return ''
+  const d = new Date(dateStr)
+  return d.toLocaleDateString() + ' ' + d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })
+}
+
+const formatJSON = (obj) => {
+  return JSON.stringify(obj, null, 2)
+}
+
+const getLogMarkerClass = (status) => {
+  const s = (status || '').toLowerCase()
+  if (s === 'completed' || s === 'approve') return 'marker-green'
+  if (s === 'failed' || s === 'reject' || s === 'error') return 'marker-red'
+  if (s === 'pending_approval' || s === 'return' || s === 'started' || s === 'pending') return 'marker-amber'
+  return 'marker-gray'
+}
+
+const handleAction = async (actionStr) => {
+    loading.value.action = true
+    try {
+        if (actionStr === 'approve') {
+            await execStore.approveStep(executionId.value, approvalComment.value || 'Approved')
+        } else if (actionStr === 'reject') {
+            await execStore.rejectStep(executionId.value, approvalComment.value || 'Rejected')
+        } else if (actionStr === 'return_step') {
+            await execStore.returnStep(executionId.value, approvalComment.value || 'Returned')
+        }
+        approvalComment.value = ''
+    } finally {
+        loading.value.action = false
+    }
+}
+
+const cancelExec = async () => {
+    if(confirm('Cancel execution?')) {
+        await execStore.cancelExecution(executionId.value)
+    }
+}
+
+const retryExec = async () => {
+    if(confirm('Retry execution?')) {
+        await execStore.retryExecution(executionId.value)
+    }
+}
 </script>
+
+<style scoped>
+.grid-layout {
+  display: grid;
+  grid-template-columns: 1fr 2fr;
+  gap: 24px;
+}
+.btn-back {
+  width: 40px; height: 40px; border-radius: 12px;
+  display: flex; align-items: center; justify-content: center;
+  text-decoration: none; font-size: 18px; color: var(--text-primary);
+  border: 1px solid var(--border-color);
+}
+.info-row {
+  display: flex; justify-content: space-between; align-items: center;
+  padding: 12px 0; border-bottom: 1px dashed var(--border-color);
+}
+.info-row:last-of-type { border-bottom: none; }
+.info-row .label { font-size: 13px; color: var(--text-muted); }
+.info-row .value { font-size: 14px; font-weight: 600; }
+.v-tag {
+  font-size: 10px; background: var(--accent-indigo-light);
+  color: var(--accent-indigo); padding: 2px 6px; border-radius: 4px;
+  vertical-align: middle; margin-left: 4px;
+}
+
+.code-block {
+  background: #0f172a; color: #cbd5e1;
+  padding: 16px; border-radius: 12px;
+  font-family: monospace; font-size: 12px;
+  overflow-x: auto; margin-top: 8px;
+}
+.code-block pre { margin: 0; }
+
+.action-required {
+  border: 1px solid var(--accent-indigo);
+  background: linear-gradient(to bottom right, #ffffff, #f5f3ff);
+}
+.action-avatar {
+  width: 48px; height: 48px; border-radius: 14px;
+  display: flex; align-items: center; justify-content: center;
+  color: white; font-weight: 800; font-size: 24px;
+}
+
+.letter-spacing-1 { letter-spacing: 1px; }
+.uppercase { text-transform: uppercase; }
+</style>

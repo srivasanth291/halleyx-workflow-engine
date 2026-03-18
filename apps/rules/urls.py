@@ -1,12 +1,10 @@
-"""
-Rule URL patterns.
-"""
-from django.urls import path
-from .views import RuleListCreateView, RuleDetailView, RuleValidateView, RuleReorderView
+from django.urls import path, include
+from rest_framework.routers import DefaultRouter
+from apps.rules.views import RuleViewSet
+
+router = DefaultRouter()
+router.register(r'', RuleViewSet, basename='rule')
 
 urlpatterns = [
-    path('steps/<uuid:step_id>/rules/', RuleListCreateView.as_view(), name='rule-list-create'),
-    path('rules/<uuid:pk>/', RuleDetailView.as_view(), name='rule-detail'),
-    path('rules/validate/', RuleValidateView.as_view(), name='rule-validate'),
-    path('steps/<uuid:step_id>/rules/reorder/', RuleReorderView.as_view(), name='rule-reorder'),
+    path('', include(router.urls)),
 ]

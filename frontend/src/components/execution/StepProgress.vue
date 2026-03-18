@@ -1,40 +1,103 @@
 <template>
-  <div class="stepper">
-    <template v-for="(step, i) in steps" :key="step.id">
-      <div class="stepper-item">
-        <div :class="['stepper-circle', stepStatus(step.id)]">
-          <span v-if="stepStatus(step.id) === 'completed'">✓</span>
-          <span v-else-if="stepStatus(step.id) === 'in-progress'">
-            <span class="spinner" style="width:16px;height:16px;border-width:2px;color:white"></span>
-          </span>
-          <span v-else-if="stepStatus(step.id) === 'failed'">✕</span>
-          <span v-else style="font-size:11px">{{ i + 1 }}</span>
-        </div>
-        <div :class="['stepper-label', stepStatus(step.id)]">{{ step.name }}</div>
+  <div class="step-progress">
+    <div v-for="(step, index) in steps" :key="step.id" class="progress-item" :class="getStepClass(step)">
+      <div class="step-circle">
+        <span v-if="isStepCompleted(step)">✓</span>
+        <span v-else>{{ index + 1 }}</span>
       </div>
-      <div
-        v-if="i < steps.length - 1"
-        :class="['stepper-line', stepStatus(step.id) === 'completed' ? 'done' : 'pending-line']"
-      ></div>
-    </template>
+      <div class="step-info">
+        <div class="step-name">{{ step.name }}</div>
+        <div class="step-status">{{ getStepStatusText(step) }}</div>
+      </div>
+      <div v-if="index < steps.length - 1" class="step-line"></div>
+    </div>
   </div>
 </template>
 
 <script setup>
+import { computed } from 'vue'
+
 const props = defineProps({
-  steps:         { type: Array,  default: () => [] },
-  logs:          { type: Array,  default: () => [] },
+  steps: { type: Array, default: () => [] },
   currentStepId: { type: String, default: null },
+  logs: { type: Array, default: () => [] },
+  status: { type: String, default: 'pending' }
 })
 
-function stepStatus(stepId) {
-  const log = props.logs.find(l => l.step_id === stepId)
-  if (log) {
-    if (['completed', 'approve'].includes(log.status)) return 'completed'
-    if (['failed', 'reject'].includes(log.status))     return 'failed'
-    if (log.status === 'pending_approval' || log.status === 'in_progress') return 'in-progress'
-  }
-  if (String(props.currentStepId) === String(stepId)) return 'in-progress'
+const getStepClass = (step) => {
+  if (isStepCompleted(step)) return 'completed'
+  if (String(step.id) === String(props.currentStepId)) return 'active'
   return 'pending'
 }
+
+const isStepCompleted = (step) => {
+  return props.logs.some(log => String(log.step_id) === String(step.id) && log.status === 'completed')
+}
+
+const getStepStatusText = (step) => {
+  if (isStepCompleted(step)) return 'Completed'
+  if (String(step.id) === String(props.currentStepId)) return 'In Progress'
+  return 'Pending'
+}
 </script>
+
+<style scoped>
+.step-progress {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+.progress-item {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  position: relative;
+}
+.step-circle {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: bold;
+  font-size: 14px;
+  border: 2px solid var(--border-color);
+  background: white;
+  z-index: 2;
+}
+.step-info {
+  display: flex;
+  flex-direction: column;
+}
+.step-name {
+  font-weight: 600;
+  font-size: 14px;
+}
+.step-status {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+.step-line {
+  position: absolute;
+  top: 32px;
+  left: 15px;
+  width: 2px;
+  height: 20px;
+  background: var(--border-color);
+}
+
+.completed .step-circle {
+  background: var(--accent-green);
+  border-color: var(--accent-green);
+  color: white;
+}
+.completed .step-line {
+  background: var(--accent-green);
+}
+.active .step-circle {
+  border-color: var(--accent-indigo);
+  color: var(--accent-indigo);
+  box-shadow: 0 0 0 4px var(--accent-indigo-light);
+}
+</style>

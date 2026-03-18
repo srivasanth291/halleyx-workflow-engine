@@ -1,90 +1,81 @@
 import { defineStore } from 'pinia'
-import { ref } from 'vue'
 import executionService from '@/services/execution.service'
+import workflowService from '@/services/workflow.service'
+import { useNotificationStore } from '@/stores/notification'
 
-export const useExecutionStore = defineStore('execution', () => {
-  const executions = ref([])
-  const currentExecution = ref(null)
-  const auditStats = ref(null)
-  const loading = ref(false)
-
-  async function executeWorkflow(workflowId, data, maxIterations = 10) {
-    loading.value = true
-    try {
-      const res = await executionService.execute(workflowId, { data, max_iterations: maxIterations })
-      currentExecution.value = res.data
+export const useExecutionStore = defineStore('execution', {
+  state: () => ({
+    executions: [],
+    currentExecution: null,
+    auditStats: { total: 0, completed: 0, failed: 0, pending: 0, in_progress: 0, canceled: 0 },
+    loading: false
+  }),
+  actions: {
+    async executeWorkflow(wfId, data, maxIter) {
+      this.loading = true
+      try {
+        const res = await workflowService.execute(wfId, data, maxIter)
+        const ns = useNotificationStore()
+        ns.success('Workflow execution started!')
+        return res.data
+      } finally {
+        this.loading = false
+      }
+    },
+    async fetchExecutions(params) {
+      this.loading = true
+      try {
+        const res = await executionService.getAll(params)
+        this.executions = res.data.results || res.data
+      } finally {
+        this.loading = false
+      }
+    },
+    async fetchExecution(id) {
+      const res = await executionService.getOne(id)
+      this.currentExecution = res.data
       return res.data
-    } finally { loading.value = false }
-  }
-
-  async function fetchExecution(id) {
-    const res = await executionService.getOne(id)
-    currentExecution.value = res.data
-    return res.data
-  }
-
-  async function fetchExecutions(params = {}) {
-    loading.value = true
-    try {
-      const res = await executionService.getAll(params)
-      executions.value = res.data.results || []
+    },
+    async approveStep(id, comment) {
+      const res = await executionService.approve(id, comment)
+      this.currentExecution = res.data
+      useNotificationStore().success('Step approved')
       return res.data
-    } finally { loading.value = false }
-  }
-
-  async function approveStep(id, comment = '') {
-    const r = await executionService.approve(id, { action: 'approve', comment })
-    currentExecution.value = r.data
-    return r.data
-  }
-
-  async function rejectStep(id, comment = '') {
-    const r = await executionService.reject(id, { action: 'reject', comment })
-    currentExecution.value = r.data
-    return r.data
-  }
-
-  async function returnStep(id, comment = '') {
-    const r = await executionService.returnStep(id, { action: 'return', comment })
-    currentExecution.value = r.data
-    return r.data
-  }
-
-  async function cancelExecution(id) {
-    const r = await executionService.cancel(id)
-    currentExecution.value = r.data
-    return r.data
-  }
-
-  async function retryExecution(id) {
-    const r = await executionService.retry(id)
-    currentExecution.value = r.data
-    return r.data
-  }
-
-  async function fetchAuditLog(params = {}) {
-    loading.value = true
-    try {
-      const res = await executionService.getAuditLog(params)
-      executions.value = res.data.results || []
-      auditStats.value = res.data.stats || null
+    },
+    async rejectStep(id, comment) {
+      const res = await executionService.reject(id, comment)
+      this.currentExecution = res.data
+      useNotificationStore().success('Step rejected')
       return res.data
-    } finally { loading.value = false }
-  }
-
-  return {
-    executions,
-    currentExecution,
-    auditStats,
-    loading,
-    executeWorkflow,
-    fetchExecution,
-    fetchExecutions,
-    approveStep,
-    rejectStep,
-    returnStep,
-    cancelExecution,
-    retryExecution,
-    fetchAuditLog,
+    },
+    async returnStep(id, comment) {
+      const res = await executionService.returnStep(id, comment)
+      this.currentExecution = res.data
+      useNotificationStore().success('Step returned')
+      return res.data
+    },
+    async retryExecution(id) {
+      const res = await executionService.retry(id)
+      this.currentExecution = res.data
+      useNotificationStore().success('Execution retried')
+      return res.data
+    },
+    async cancelExecution(id) {
+      const res = await executionService.cancel(id)
+      this.currentExecution = res.data
+      useNotificationStore().warning('Execution canceled')
+      return res.data
+    },
+    async fetchAuditLog(params) {
+      this.loading = true
+      try {
+        const res = await executionService.getAuditLog(params)
+        this.executions = res.data.results || res.data || []
+        this.auditStats = res.data.stats || { total: 0, completed: 0, failed: 0, pending: 0, in_progress: 0, canceled: 0 }
+        return res.data
+      } finally {
+        this.loading = false
+      }
+    }
   }
 })

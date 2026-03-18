@@ -1,59 +1,53 @@
 import { defineStore } from 'pinia'
-import { ref, computed } from 'vue'
 import authService from '@/services/auth.service'
 
-export const useAuthStore = defineStore('auth', () => {
-  const user = ref(null)
-  const accessToken = ref(localStorage.getItem('access_token'))
-  const refreshToken = ref(localStorage.getItem('refresh_token'))
-  const loading = ref(false)
-  const isAuthenticated = computed(() => !!accessToken.value)
-
-  function setTokens(access, refresh) {
-    accessToken.value = access
-    refreshToken.value = refresh
-    localStorage.setItem('access_token', access)
-    localStorage.setItem('refresh_token', refresh)
+export const useAuthStore = defineStore('auth', {
+  state: () => ({
+    user: null,
+    loading: true
+  }),
+  getters: {
+    // Role is a FK object {id, name, is_admin} — not a string
+    isAdmin: (state) => {
+      if (!state.user) return false
+      const role = state.user.role
+      if (!role) return false
+      // Support both FK object (role.is_admin) and legacy string ('admin')
+      if (typeof role === 'object') return role.is_admin === true
+      return role === 'admin' || role === 'super_admin'
+    }
+  },
+  actions: {
+    async login(data) {
+      const response = await authService.login(data)
+      localStorage.setItem('access_token', response.data.access)
+      localStorage.setItem('refresh_token', response.data.refresh)
+      this.user = response.data.user
+    },
+    async logout() {
+      try {
+        const refresh = localStorage.getItem('refresh_token')
+        if (refresh) await authService.logout({ refresh })
+      } catch (e) {
+        console.error(e)
+      } finally {
+        localStorage.removeItem('access_token')
+        localStorage.removeItem('refresh_token')
+        this.user = null
+      }
+    },
+    async fetchProfile() {
+      try {
+        const response = await authService.getProfile()
+        this.user = response.data
+      } catch (e) {
+        localStorage.removeItem('access_token')
+        localStorage.removeItem('refresh_token')
+        this.user = null
+        throw e
+      } finally {
+        this.loading = false
+      }
+    }
   }
-
-  function clearAuth() {
-    accessToken.value = null
-    refreshToken.value = null
-    user.value = null
-    localStorage.clear()
-  }
-
-  async function register(data) {
-    loading.value = true
-    try {
-      const res = await authService.register(data)
-      setTokens(res.data.tokens.access, res.data.tokens.refresh)
-      user.value = res.data.user
-      return res.data
-    } finally { loading.value = false }
-  }
-
-  async function login(data) {
-    loading.value = true
-    try {
-      const res = await authService.login(data)
-      setTokens(res.data.access, res.data.refresh)
-      user.value = res.data.user
-      return res.data
-    } finally { loading.value = false }
-  }
-
-  async function logout() {
-    try { await authService.logout({ refresh: refreshToken.value }) } catch {}
-    clearAuth()
-    window.location.href = '/login'
-  }
-
-  async function fetchProfile() {
-    const res = await authService.getProfile()
-    user.value = res.data
-    return res.data
-  }
-
-  return { user, accessToken, refreshToken, loading, isAuthenticated, register, login, logout, fetchProfile }
 })

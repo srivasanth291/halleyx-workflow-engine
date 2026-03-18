@@ -1,9 +1,12 @@
 import api from './api'
-export default {
-  getAll:   sId      => api.get(`/steps/${sId}/rules/`),
-  create:   (sId, d) => api.post(`/steps/${sId}/rules/`, d),
-  update:   (id, d)  => api.put(`/rules/${id}/`, d),
-  delete:   id       => api.delete(`/rules/${id}/`),
-  validate: d        => api.post('/rules/validate/', d),
-  reorder:  (sId, d) => api.post(`/steps/${sId}/rules/reorder/`, d),
+
+class RuleService {
+  getAll(stepId) { return api.get(`/rules/`, { params: { step: stepId } }) }
+  getOne(id) { return api.get(`/rules/${id}/`) }
+  create(data) { return api.post('/rules/', data) }
+  update(id, data) { return api.put(`/rules/${id}/`, data) }
+  delete(id) { return api.delete(`/rules/${id}/`) }
+  validate(data) { return api.post('/rules/validate_syntax/', data) }
+  reorder(data) { return api.post('/rules/reorder/', data) }
 }
+export default new RuleService()

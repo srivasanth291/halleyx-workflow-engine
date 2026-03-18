@@ -1,16 +1,7 @@
-"""
-Workflow model.
-"""
 import uuid
 from django.db import models
 
-
 class Workflow(models.Model):
-    """
-    Workflow definition model.
-    Supports versioning — editing creates a new version row.
-    Old versions are locked (is_active=False) forever.
-    """
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     company = models.ForeignKey(
         'authentication.Company',
@@ -27,8 +18,6 @@ class Workflow(models.Model):
 
     class Meta:
         ordering = ['-created_at']
-        verbose_name = 'Workflow'
-        verbose_name_plural = 'Workflows'
 
     def __str__(self):
         return f'{self.name} v{self.version}'

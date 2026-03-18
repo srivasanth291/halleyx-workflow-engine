@@ -1,0 +1,16 @@
+Workflow: Leave Request Workflow
+Step 1: Supervisor Approval
+  - Rule: sys_status == 'rejected' -> Notify Employee - Rejected
+  - Rule: days_requested > 2 -> Manager Approval
+  - Rule: DEFAULT -> HR Processing (Approved)
+Step 2: Manager Approval
+  - Rule: sys_status == 'rejected' -> Notify Employee - Rejected
+  - Rule: days_requested > 5 -> CEO Approval
+  - Rule: DEFAULT -> HR Processing (Approved)
+Step 3: CEO Approval
+  - Rule: sys_status == 'rejected' -> Notify Employee - Rejected
+  - Rule: DEFAULT -> HR Processing (Approved)
+Step 4: HR Processing (Approved)
+  - Rule: DEFAULT -> Notify Employee - Approved
+Step 5: Notify Employee - Approved
+Step 6: Notify Employee - Rejected

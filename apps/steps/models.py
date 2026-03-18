@@ -1,29 +1,21 @@
-"""
-Step model.
-"""
 import uuid
 from django.db import models
-
+from apps.workflows.models import Workflow
 
 class Step(models.Model):
-    """
-    A step in a workflow.
-    Types: task, approval, notification.
-    """
-    STEP_TYPE_CHOICES = [
+    TYPE_CHOICES = (
         ('task', 'Task'),
         ('approval', 'Approval'),
         ('notification', 'Notification'),
-    ]
-
+    )
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     workflow = models.ForeignKey(
-        'workflows.Workflow',
+        Workflow,
         on_delete=models.CASCADE,
-        related_name='steps',
+        related_name='steps'
     )
     name = models.CharField(max_length=255)
-    step_type = models.CharField(max_length=20, choices=STEP_TYPE_CHOICES)
+    step_type = models.CharField(max_length=20, choices=TYPE_CHOICES)
     order = models.PositiveIntegerField()
     metadata = models.JSONField(default=dict)
     created_at = models.DateTimeField(auto_now_add=True)
@@ -31,8 +23,6 @@ class Step(models.Model):
 
     class Meta:
         ordering = ['order']
-        verbose_name = 'Step'
-        verbose_name_plural = 'Steps'
 
     def __str__(self):
-        return f'{self.workflow.name} — {self.name} (#{self.order})'
+        return f'{self.name} ({self.step_type})'

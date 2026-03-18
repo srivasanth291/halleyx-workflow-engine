@@ -1,21 +1,13 @@
-"""
-Rule model.
-"""
 import uuid
 from django.db import models
-
+from apps.steps.models import Step
 
 class Rule(models.Model):
-    """
-    A routing rule for a step.
-    Conditions are evaluated in priority order.
-    'DEFAULT' condition always matches — used as fallback.
-    """
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     step = models.ForeignKey(
-        'steps.Step',
+        Step,
         on_delete=models.CASCADE,
-        related_name='rules',
+        related_name='rules'
     )
     condition = models.TextField()
     next_step_id = models.UUIDField(null=True, blank=True)
@@ -25,8 +17,6 @@ class Rule(models.Model):
 
     class Meta:
         ordering = ['priority']
-        verbose_name = 'Rule'
-        verbose_name_plural = 'Rules'
 
     def __str__(self):
-        return f'Rule P{self.priority}: {self.condition[:80]}'
+        return f'Rule {self.priority} for {self.step}'

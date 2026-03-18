@@ -1,11 +1,18 @@
 import api from './api'
-export default {
-  register:      d  => api.post('/auth/register/', d),
-  login:         d  => api.post('/auth/login/', d),
-  logout:        d  => api.post('/auth/logout/', d),
-  getProfile:    () => api.get('/auth/me/'),
-  updateProfile: d  => api.put('/auth/me/', d),
-  refreshToken:  d  => api.post('/auth/token/refresh/', d),
-  createUser:    d  => api.post('/auth/users/', d),
-  getUsers:      p  => api.get('/auth/users/', { params: p }),
+
+class AuthService {
+  login(data) { return api.post('/auth/login/', data) }
+  logout(data) { return api.post('/auth/logout/', data) }
+  getProfile() { return api.get('/auth/me/') }
+  updateProfile(data) { return api.put('/auth/me/', data) }
+  getUsers(params) { return api.get('/auth/users/', { params }) }
+  createUser(data) { return api.post('/auth/users/', data) }
+  updateUser(id, data) { return api.put(`/auth/users/${id}/`, data) }
+  deactivateUser(id) { return api.post(`/auth/users/${id}/deactivate/`) }
+  getRoles() { return api.get('/auth/roles/') }
+  createRole(data) { return api.post('/auth/roles/', data) }
+  updateRole(id, data) { return api.put(`/auth/roles/${id}/`, data) }
+  deleteRole(id) { return api.delete(`/auth/roles/${id}/`) }
 }
+
+export default new AuthService()

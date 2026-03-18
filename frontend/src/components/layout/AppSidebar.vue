@@ -1,131 +1,166 @@
 <template>
-  <aside class="sidebar">
-    <div class="sb-logo">
-      <div class="sb-logo-icon">⚡</div>
-      <span class="sb-logo-text">FlowEngine</span>
+  <div class="sidebar">
+    <div class="sidebar-header">
+      <div class="logo-icon">⚡</div>
+      <div class="logo-text">FlowEngine</div>
     </div>
-    <nav class="sb-nav">
-      <router-link
-        v-for="item in navItems"
-        :key="item.path"
-        :to="item.path"
-        class="nav-link"
-        active-class="nav-link-active"
-      >
-        <span v-html="item.icon" class="nav-icon"></span>
-        <span>{{ item.label }}</span>
+    
+    <div class="sidebar-nav">
+      <router-link to="/dashboard" class="nav-item">
+        <span class="icon">🏠</span> Dashboard
       </router-link>
-    </nav>
-    <div class="sb-bottom">
-      <div class="sb-company">
-        <span class="sb-company-name">{{ user?.company_name || 'Company' }}</span>
-        <span class="badge badge-success" style="font-size:11px">{{ user?.company_plan || 'Pro' }}</span>
+      <router-link to="/tasks" class="nav-item">
+        <span class="icon">📋</span> Tasks
+      </router-link>
+      <router-link to="/workflows" class="nav-item">
+        <span class="icon">📋</span> Workflows
+      </router-link>
+      <router-link to="/audit" class="nav-item">
+        <span class="icon">📊</span> Audit Log
+      </router-link>
+      <router-link to="/notifications" class="nav-item">
+        <span class="icon">🔔</span> Notifications
+      </router-link>
+      <router-link to="/settings" class="nav-item">
+        <span class="icon">⚙️</span> Settings
+      </router-link>
+    </div>
+
+    <div class="sidebar-footer" v-if="authStore.user">
+      <div class="company-card">
+        <div class="text-bold text-sm">{{ authStore.user.company_name }}</div>
+        <div class="badge badge-green mt-1">{{ planDisplay }}</div>
       </div>
-      <div class="sb-user">
-        <div class="sb-avatar">{{ initials }}</div>
-        <span class="sb-uname">{{ user?.full_name || user?.email || 'User' }}</span>
-        <button class="btn-icon danger" @click="authStore.logout()" title="Logout">
-          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <path d="M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4"/>
-            <polyline points="16 17 21 12 16 7"/>
-            <line x1="21" y1="12" x2="9" y2="12"/>
-          </svg>
+      <div class="user-row mt-4">
+        <div class="avatar">{{ initials }}</div>
+        <div class="user-info flex-1">
+          <div class="text-sm text-bold truncate">{{ authStore.user.full_name || authStore.user.email }}</div>
+        </div>
+        <button class="btn-icon text-red" @click="handleLogout" title="Logout">
+          🚪
         </button>
       </div>
     </div>
-  </aside>
+  </div>
 </template>
 
 <script setup>
 import { computed } from 'vue'
+import { useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 
 const authStore = useAuthStore()
-const user = computed(() => authStore.user)
+const router = useRouter()
+
 const initials = computed(() => {
-  const n = user.value?.full_name || user.value?.email || 'U'
-  return n.split(' ').map(w => w[0]).join('').toUpperCase().slice(0, 2)
+  if (!authStore.user) return ''
+  const first = authStore.user.first_name ? authStore.user.first_name[0] : ''
+  const last = authStore.user.last_name ? authStore.user.last_name[0] : ''
+  return (first + last).toUpperCase() || authStore.user.email[0].toUpperCase()
 })
 
-const navItems = [
-  {
-    path: '/workflows',
-    label: 'Workflows',
-    icon: `<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-      <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/>
-      <polyline points="14 2 14 8 20 8"/>
-      <line x1="16" y1="13" x2="8" y2="13"/>
-      <line x1="16" y1="17" x2="8" y2="17"/>
-    </svg>`
-  },
-  {
-    path: '/audit',
-    label: 'Audit Log',
-    icon: `<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-      <polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/>
-    </svg>`
-  },
-]
+const planDisplay = computed(() => {
+    const plan = authStore.user?.company_plan || 'pro'
+    return plan.charAt(0).toUpperCase() + plan.slice(1)
+})
+
+const handleLogout = async () => {
+  await authStore.logout()
+  router.push('/login')
+}
 </script>
 
 <style scoped>
 .sidebar {
-  position: fixed; top: 0; left: 0;
-  width: var(--sidebar-width); height: 100vh;
-  background: var(--bg-sidebar); border-right: 1px solid var(--border-color);
-  display: flex; flex-direction: column; z-index: 100;
+  width: var(--sidebar-width);
+  background: var(--bg-sidebar);
+  border-right: 1px solid var(--border-color);
+  position: fixed;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  display: flex;
+  flex-direction: column;
+  z-index: 100;
 }
-.sb-logo {
-  display: flex; align-items: center; gap: 10px;
-  padding: 18px 16px; border-bottom: 1px solid var(--border-color);
+.sidebar-header {
+  padding: 20px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
 }
-.sb-logo-icon {
-  width: 30px; height: 30px; background: var(--accent-green);
-  border-radius: 7px; display: flex; align-items: center;
-  justify-content: center; font-size: 14px; color: white;
+.logo-icon {
+  width: 32px;
+  height: 32px;
+  background: var(--accent-green);
+  color: white;
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: bold;
 }
-.sb-logo-text { font-size: 16px; font-weight: 700; }
-.sb-nav {
-  padding: 12px 8px; flex: 1;
-  display: flex; flex-direction: column; gap: 2px;
+.logo-text {
+  font-size: 17px;
+  font-weight: bold;
 }
-.nav-link {
-  display: flex; align-items: center; gap: 10px;
-  padding: 9px 10px; border-radius: 8px;
-  font-size: 14px; font-weight: 500;
-  color: var(--text-secondary); text-decoration: none;
-  transition: all .15s; border-left: 3px solid transparent;
+.sidebar-nav {
+  padding: 12px 8px;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
 }
-.nav-link:hover { background: var(--bg-page); color: var(--text-primary); }
-.nav-link-active {
-  background: var(--accent-green-light) !important;
-  color: var(--accent-green) !important;
-  border-left-color: var(--accent-green) !important;
+.nav-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  text-decoration: none;
+  color: var(--text-secondary);
+  font-size: 14px;
+  font-weight: 500;
+  transition: all 0.2s;
+  border-left: 3px solid transparent;
 }
-.nav-icon { display: flex; align-items: center; }
-.sb-bottom {
-  padding: 14px 12px; border-top: 1px solid var(--border-color);
-  display: flex; flex-direction: column; gap: 10px;
+.nav-item:hover {
+  background: var(--bg-page);
+  color: var(--text-primary);
 }
-.sb-company {
-  background: var(--bg-page); border-radius: 8px;
-  padding: 10px 12px; display: flex;
-  align-items: center; justify-content: space-between;
+.nav-item.router-link-active {
+  background: var(--accent-green-light);
+  color: var(--accent-green);
+  border-left-color: var(--accent-green);
 }
-.sb-company-name {
-  font-size: 13px; font-weight: 600;
-  overflow: hidden; text-overflow: ellipsis;
-  white-space: nowrap; max-width: 130px;
+.icon { font-size: 17px; }
+.sidebar-footer {
+  border-top: 1px solid var(--border-color);
+  padding: 14px;
 }
-.sb-user { display: flex; align-items: center; gap: 8px; }
-.sb-avatar {
-  width: 30px; height: 30px; background: var(--accent-green);
-  border-radius: 50%; display: flex; align-items: center;
-  justify-content: center; font-size: 11px; font-weight: 700;
-  color: white; flex-shrink: 0;
+.company-card {
+  background: var(--bg-page);
+  border-radius: 8px;
+  padding: 12px;
 }
-.sb-uname {
-  flex: 1; font-size: 13px; font-weight: 500;
-  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+.user-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
 }
+.avatar {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: var(--accent-green);
+  color: white;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  font-weight: bold;
+}
+.user-info { overflow: hidden; }
+.truncate { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.text-red:hover { color: var(--error-text); }
 </style>

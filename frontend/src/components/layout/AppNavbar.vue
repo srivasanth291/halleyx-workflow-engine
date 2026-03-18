@@ -1,51 +1,132 @@
 <template>
-  <header class="navbar">
-    <h1 class="nb-title">{{ title }}</h1>
-    <div class="nb-right">
-      <button class="btn-icon">
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <path d="M18 8A6 6 0 006 8c0 7-3 9-3 9h18s-3-2-3-9"/>
-          <path d="M13.73 21a2 2 0 01-3.46 0"/>
-        </svg>
-      </button>
-      <div class="nb-sep"></div>
-      <div class="nb-user">
-        <div class="nb-avatar">{{ initials }}</div>
-        <span>{{ user?.full_name || user?.email || '' }}</span>
+  <div class="navbar">
+    <div class="navbar-left">
+      <div class="page-title">{{ routeName }}</div>
+    </div>
+    <div class="navbar-right">
+      <router-link to="/notifications" class="bell-btn position-relative">
+        🔔
+        <span v-if="unreadCount > 0" class="badge-count">{{ unreadCount }}</span>
+      </router-link>
+      <div class="separator"></div>
+      <div class="user-profile">
+        <div class="avatar-small">{{ initials }}</div>
+        <div class="user-name">{{ authStore.user?.full_name || authStore.user?.email }}</div>
       </div>
     </div>
-  </header>
+  </div>
 </template>
 
 <script setup>
-import { computed } from 'vue'
+import { computed, onMounted } from 'vue'
+import { useRoute } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
+import { useEmailNotificationStore } from '@/stores/emailNotification'
 
-defineProps({ title: String })
-
+const route = useRoute()
 const authStore = useAuthStore()
-const user = computed(() => authStore.user)
+const notifStore = useEmailNotificationStore()
+
+const routeName = computed(() => {
+  const defaultNames = {
+    workflows: 'Workflows',
+    'workflow-new': 'Create Workflow',
+    'workflow-edit': 'Edit Workflow',
+    rules: 'Rules Config',
+    execute: 'Execute Workflow',
+    audit: 'Audit Log',
+    notifications: 'Notifications',
+    settings: 'Settings'
+  }
+  return defaultNames[route.name] || 'FlowEngine'
+})
+
 const initials = computed(() => {
-  const n = user.value?.full_name || user.value?.email || 'U'
-  return n.split(' ').map(w => w[0]).join('').toUpperCase().slice(0, 2)
+  if (!authStore.user) return ''
+  const first = authStore.user.first_name ? authStore.user.first_name[0] : ''
+  const last = authStore.user.last_name ? authStore.user.last_name[0] : ''
+  return (first + last).toUpperCase() || authStore.user.email[0].toUpperCase()
+})
+
+const unreadCount = computed(() => {
+  return notifStore.stats?.total_pending || 0
+})
+
+onMounted(() => {
+  if (authStore.user) {
+    notifStore.fetchStats()
+  }
 })
 </script>
 
 <style scoped>
 .navbar {
-  position: fixed; top: 0; left: var(--sidebar-width); right: 0;
-  height: var(--navbar-height); background: var(--bg-navbar);
+  height: var(--navbar-height);
+  background: var(--bg-card);
   border-bottom: 1px solid var(--border-color);
-  display: flex; align-items: center; justify-content: space-between;
-  padding: 0 24px; z-index: 99;
+  padding: 0 24px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  position: fixed;
+  top: 0;
+  left: var(--sidebar-width);
+  right: 0;
+  z-index: 90;
 }
-.nb-title { font-size: 17px; font-weight: 700; }
-.nb-right { display: flex; align-items: center; gap: 12px; }
-.nb-sep { width: 1px; height: 22px; background: var(--border-color); }
-.nb-user { display: flex; align-items: center; gap: 8px; font-size: 14px; font-weight: 500; }
-.nb-avatar {
-  width: 30px; height: 30px; background: var(--accent-green);
-  border-radius: 50%; display: flex; align-items: center;
-  justify-content: center; font-size: 11px; font-weight: 700; color: white;
+.page-title {
+  font-size: 17px;
+  font-weight: bold;
+}
+.navbar-right {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+.bell-btn {
+  background: transparent;
+  border: none;
+  font-size: 20px;
+  cursor: pointer;
+  text-decoration: none;
+  position: relative;
+}
+.position-relative { position: relative; }
+.badge-count {
+  position: absolute;
+  top: -4px;
+  right: -8px;
+  background: var(--error-text);
+  color: white;
+  font-size: 10px;
+  font-weight: bold;
+  padding: 2px 6px;
+  border-radius: 10px;
+}
+.separator {
+  width: 1px;
+  height: 24px;
+  background: var(--border-color);
+}
+.user-profile {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.avatar-small {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: var(--accent-green-light);
+  color: var(--accent-green-dark);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  font-weight: bold;
+}
+.user-name {
+  font-size: 14px;
+  font-weight: 500;
 }
 </style>

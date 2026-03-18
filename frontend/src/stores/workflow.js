@@ -1,57 +1,81 @@
 import { defineStore } from 'pinia'
-import { ref } from 'vue'
 import workflowService from '@/services/workflow.service'
+import { useNotificationStore } from '@/stores/notification'
 
-export const useWorkflowStore = defineStore('workflow', () => {
-  const workflows = ref([])
-  const currentWorkflow = ref(null)
-  const totalCount = ref(0)
-  const loading = ref(false)
-
-  async function fetchWorkflows(params = {}) {
-    loading.value = true
-    try {
-      const res = await workflowService.getAll(params)
-      workflows.value = res.data.results || res.data
-      totalCount.value = res.data.count || 0
+export const useWorkflowStore = defineStore('workflow', {
+  state: () => ({
+    workflows: [],
+    currentWorkflow: null,
+    totalCount: 0,
+    loading: false
+  }),
+  actions: {
+    async fetchWorkflows(params) {
+      this.loading = true
+      try {
+        const res = await workflowService.getAll(params)
+        if (res.data.results) {
+            this.workflows = res.data.results
+            this.totalCount = res.data.count
+        } else {
+            this.workflows = res.data
+        }
+      } finally {
+        this.loading = false
+      }
+    },
+    async fetchWorkflow(id) {
+      this.loading = true
+      try {
+        const res = await workflowService.getOne(id)
+        this.currentWorkflow = res.data
+        return res.data
+      } finally {
+        this.loading = false
+      }
+    },
+    async createWorkflow(data) {
+      this.loading = true
+      try {
+        const res = await workflowService.create(data)
+        const ns = useNotificationStore()
+        ns.success('Workflow created!')
+        return res.data
+      } finally {
+        this.loading = false
+      }
+    },
+    async updateWorkflow(id, data) {
+      this.loading = true
+      try {
+        const res = await workflowService.update(id, data)
+        const ns = useNotificationStore()
+        ns.success(`New version v${res.data.version} created!`)
+        this.currentWorkflow = res.data
+        return res.data
+      } finally {
+        this.loading = false
+      }
+    },
+    async deleteWorkflow(id) {
+      await workflowService.delete(id)
+      const ns = useNotificationStore()
+      ns.success('Workflow disabled.')
+    },
+    async fetchVersions(id) {
+      const res = await workflowService.getVersions(id)
       return res.data
-    } finally { loading.value = false }
+    },
+    async rollback(id, targetVersion) {
+      this.loading = true
+      try {
+        const res = await workflowService.rollback(id, targetVersion)
+        const ns = useNotificationStore()
+        ns.success(`Rolled back to v${targetVersion}!`)
+        return res.data
+      } finally {
+        this.loading = false
+      }
+    }
   }
-
-  async function fetchWorkflow(id) {
-    loading.value = true
-    try {
-      const res = await workflowService.getOne(id)
-      currentWorkflow.value = res.data
-      return res.data
-    } finally { loading.value = false }
-  }
-
-  async function createWorkflow(data) {
-    const res = await workflowService.create(data)
-    return res.data
-  }
-
-  async function updateWorkflow(id, data) {
-    const res = await workflowService.update(id, data)
-    currentWorkflow.value = res.data
-    return res.data
-  }
-
-  async function deleteWorkflow(id) {
-    await workflowService.delete(id)
-    await fetchWorkflows()
-  }
-
-  async function fetchVersions(id) {
-    const res = await workflowService.getVersions(id)
-    return res.data
-  }
-
-  async function rollback(id, targetVersion) {
-    const res = await workflowService.rollback(id, { target_version: targetVersion })
-    return res.data
-  }
-
-  return { workflows, currentWorkflow, totalCount, loading, fetchWorkflows, fetchWorkflow, createWorkflow, updateWorkflow, deleteWorkflow, fetchVersions, rollback }
 })

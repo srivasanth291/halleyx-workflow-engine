@@ -1,31 +1,39 @@
 import { createRouter, createWebHistory } from 'vue-router'
-import LoginView            from '@/views/LoginView.vue'
-import WorkflowListView     from '@/views/WorkflowListView.vue'
-import WorkflowEditorView   from '@/views/WorkflowEditorView.vue'
-import RuleEditorView       from '@/views/RuleEditorView.vue'
-import ExecutionView        from '@/views/ExecutionView.vue'
-import AuditLogView         from '@/views/AuditLogView.vue'
 
 const routes = [
-  { path: '/', redirect: '/workflows' },
-  { path: '/login', component: LoginView, meta: { public: true } },
-  { path: '/workflows', component: WorkflowListView, meta: { title: 'Workflows' } },
-  { path: '/workflows/new', component: WorkflowEditorView, meta: { title: 'Create Workflow' } },
-  { path: '/workflows/:id/edit', component: WorkflowEditorView, meta: { title: 'Edit Workflow' } },
-  { path: '/workflows/:workflowId/steps/:stepId/rules', component: RuleEditorView, meta: { title: 'Rule Editor' } },
-  { path: '/workflows/:id/execute', component: ExecutionView, meta: { title: 'Execute Workflow' } },
-  { path: '/audit', component: AuditLogView, meta: { title: 'Audit Log' } },
+  { path: '/', redirect: '/dashboard' },
+  { path: '/dashboard', name: 'dashboard', component: () => import('../views/DashboardView.vue') },
+  { path: '/login', name: 'login', component: () => import('../views/LoginView.vue'), meta: { public: true } },
+  { path: '/workflows', name: 'workflows', component: () => import('../views/WorkflowListView.vue') },
+  { path: '/workflows/new', name: 'workflow-new', component: () => import('../views/WorkflowEditorView.vue') },
+  { path: '/workflows/:id/edit', name: 'workflow-edit', component: () => import('../views/WorkflowEditorView.vue') },
+  { path: '/workflows/:workflowId/steps/:stepId/rules', name: 'rules', component: () => import('../views/RuleEditorView.vue') },
+  { path: '/workflows/:id/execute', name: 'execute', component: () => import('../views/ExecutionView.vue') },
+  { path: '/audit', name: 'audit', component: () => import('../views/AuditLogView.vue') },
+  { path: '/notifications', name: 'notifications', component: () => import('../views/NotificationsView.vue') },
+  { path: '/settings', name: 'settings', component: () => import('../views/SettingsView.vue') },
+  { path: '/tasks', name: 'tasks', component: () => import('../views/TasksView.vue') },
 ]
 
 const router = createRouter({
-  history: createWebHistory(),
-  routes,
+  history: createWebHistory(import.meta.env.BASE_URL),
+  routes
 })
 
-router.beforeEach(to => {
+router.beforeEach((to, from, next) => {
   const token = localStorage.getItem('access_token')
-  if (!to.meta.public && !token) return '/login'
-  if (to.path === '/login' && token) return '/workflows'
+  const isPublic = to.meta.public
+
+  if (!token && !isPublic) {
+    next({ name: 'login' })
+  } else if (token && to.name === 'login' && !isPublic) {
+    // Only redirect from login to workflows if we are sure there is a token
+    // Actually, just let it pass if it's already on login, 
+    // or let the App.vue logic handle the profile check.
+    next()
+  } else {
+    next()
+  }
 })
 
 export default router

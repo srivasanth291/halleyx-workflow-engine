@@ -1,8 +1,11 @@
 import api from './api'
-export default {
-  getAll:  wId      => api.get(`/workflows/${wId}/steps/`),
-  create:  (wId, d) => api.post(`/workflows/${wId}/steps/`, d),
-  update:  (id, d)  => api.put(`/steps/${id}/`, d),
-  delete:  id       => api.delete(`/steps/${id}/`),
-  reorder: d        => api.post('/steps/reorder/', d),
+
+class StepService {
+  getAll(workflowId) { return api.get(`/steps/`, { params: { workflow_id: workflowId }}) }
+  getOne(id) { return api.get(`/steps/${id}/`) }
+  create(data) { return api.post('/steps/', data) }
+  update(id, data) { return api.put(`/steps/${id}/`, data) }
+  delete(id) { return api.delete(`/steps/${id}/`) }
+  reorder(data) { return api.post('/steps/reorder/', data) }
 }
+export default new StepService()

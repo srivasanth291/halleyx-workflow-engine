@@ -1,113 +1,29 @@
-"""
-Execution engine — orchestrates workflow execution.
-Handles step processing, approval actions, retries, and cancellations.
-"""
-import logging
-from datetime import datetime, timezone
-from typing import Any, Dict, Optional
-
-from django.utils import timezone as django_timezone
-
+import traceback
+from django.utils import timezone
+from apps.workflows.models import Workflow
+from apps.executions.models import Execution
+from apps.steps.models import Step
 from apps.engine.rule_engine import RuleEngine, WorkflowTerminationException, MaxIterationsException
-
-logger = logging.getLogger(__name__)
-
-rule_engine = RuleEngine()
-
-
-def _now_iso():
-    return django_timezone.now().isoformat()
-
-
-def _validate_execution_input(input_schema: Dict, input_data: Dict) -> None:
-    """
-    Validate input_data against workflow.input_schema.
-    Raises: rest_framework.exceptions.ValidationError if invalid.
-    """
-    from rest_framework.exceptions import ValidationError
-    errors = {}
-
-    for field in input_schema.get('fields', []):
-        field_name = field['name']
-        field_type = field.get('type', 'string')
-        required = field.get('required', False)
-        allowed = field.get('allowed_values', [])
-
-        # Required check
-        if required and field_name not in input_data:
-            errors[field_name] = f'This field is required.'
-            continue
-
-        if field_name not in input_data:
-            continue
-
-        value = input_data[field_name]
-
-        # Type check
-        if field_type == 'number':
-            try:
-                float(str(value))
-            except (ValueError, TypeError):
-                errors[field_name] = f"Must be a number, got '{value}'."
-        elif field_type == 'boolean':
-            if not isinstance(value, bool):
-                errors[field_name] = f"Must be true or false."
-        elif field_type == 'string':
-            if not isinstance(value, str):
-                errors[field_name] = f"Must be a string."
-
-        # Allowed values check
-        if allowed and str(value) not in [str(a) for a in allowed]:
-            errors[field_name] = f"Must be one of {allowed}, got '{value}'."
-
-    if errors:
-        raise ValidationError(errors)
-
+from apps.executions.tasks import send_notification_task, check_step_timeout
+from rest_framework.exceptions import ValidationError
 
 class ExecutionEngine:
-    """
-    Orchestrates workflow execution including step processing,
-    rule evaluation, approval handling, retries, and cancellations.
-    """
-
-    # ─────────────────────────────────────────────────────
-    # METHOD 1: start_execution
-    # ─────────────────────────────────────────────────────
-
-    def start_execution(self, workflow_id: str, input_data: Dict, user, max_iterations: int = 10):
-        """
-        Start a new workflow execution.
-
-        Steps:
-        1. Get active workflow
-        2. Validate input_data against schema
-        3. Create Execution record
-        4. Set status = in_progress
-        5. Get and process start step
-        """
-        from apps.workflows.models import Workflow
-        from apps.executions.models import Execution
-        from rest_framework.exceptions import ValidationError, NotFound
-
-        # Step 1: Get active workflow
+    def start_execution(self, workflow_id, input_data, user, max_iterations=10):
         try:
-            workflow = Workflow.objects.get(id=workflow_id, is_active=True)
+            workflow = Workflow.objects.get(id=workflow_id, is_active=True, company=user.company)
         except Workflow.DoesNotExist:
-            raise NotFound(f'Active workflow {workflow_id} not found.')
+            raise ValidationError("Active workflow not found.")
 
-        # Step 2: Validate input_data against input_schema
-        _validate_execution_input(workflow.input_schema, input_data)
-
-        # Step 3: Validate at least one step exists
-        from apps.steps.models import Step
-        steps = Step.objects.filter(workflow=workflow)
-        if not steps.exists():
-            raise ValidationError({'detail': 'Workflow has no steps. Add steps before executing.'})
+        self._validate_input_schema(workflow.input_schema, input_data)
 
         if not workflow.start_step_id:
-            raise ValidationError({'detail': 'Workflow has no start step configured.'})
+            raise ValidationError("Workflow start_step_id is not set.")
 
-        # Step 4: Create Execution record
+        try:
+            start_step = Step.objects.get(id=workflow.start_step_id, workflow=workflow)
+        except Step.DoesNotExist:
+            raise ValidationError("Start step does not exist.")
+
         execution = Execution.objects.create(
             workflow=workflow,
             company=workflow.company,
@@ -116,452 +32,302 @@ class ExecutionEngine:
             data=input_data,
             triggered_by=user,
             max_iterations=max_iterations,
-            iteration_count=0,
-            logs=[],
         )
 
-        # Step 5: Set in_progress and process start step
         execution.status = 'in_progress'
-        execution.save(update_fields=['status'])
+        execution.save()
+
+        return self.process_step(execution, start_step)
+
+    def _validate_input_schema(self, schema, data):
+        fields = schema.get('fields', [])
+        for field in fields:
+            name = field.get('name')
+            f_type = field.get('type')
+            required = field.get('required', False)
+            allowed = field.get('allowed_values', [])
+
+            if required and name not in data:
+                raise ValidationError({"detail": f"Field {name} is required."})
+                
+            if name in data:
+                val = data[name]
+                if f_type == 'number' and not isinstance(val, (int, float)):
+                    raise ValidationError({"detail": f"Field {name} must be a number."})
+                if f_type == 'string' and not isinstance(val, str):
+                    raise ValidationError({"detail": f"Field {name} must be a string."})
+                if f_type == 'boolean' and not isinstance(val, bool):
+                    raise ValidationError({"detail": f"Field {name} must be a boolean."})
+                
+                if allowed and val not in allowed:
+                    raise ValidationError({"detail": f"Field {name} has invalid value. Allowed: {allowed}"})
+
+    def process_step(self, execution, step):
+        execution.iteration_count += 1
+        execution.current_step_id = step.id
+        execution.save()
+
+        if execution.iteration_count > execution.max_iterations:
+            execution.status = 'failed'
+            execution.logs.append({
+                "step_id": str(step.id),
+                "step_name": step.name,
+                "error": "Max iterations exceeded",
+                "terminated_at_step": step.name
+            })
+            execution.ended_at = timezone.now()
+            execution.save()
+            raise MaxIterationsException("Max iterations exceeded")
+
+        now_str = timezone.now().isoformat()
+        log_entry = {
+            "step_id": str(step.id),
+            "step_name": step.name,
+            "step_type": step.step_type,
+            "status": "started",
+            "started_at": now_str
+        }
+        
+        # Avoid saving directly if we modify logs, we'll save at logic end or during modifications
+        temp_logs = execution.logs
+        temp_logs.append(log_entry)
+        execution.logs = temp_logs
+        execution.save(update_fields=['logs', 'current_step_id', 'iteration_count'])
 
         try:
-            start_step = Step.objects.get(id=workflow.start_step_id)
-        except Step.DoesNotExist:
-            execution.status = 'failed'
-            execution.ended_at = django_timezone.now()
-            execution.logs.append({
-                'error': f'Start step {workflow.start_step_id} not found.',
-                'timestamp': _now_iso(),
+            if step.step_type == 'task':
+                return self._process_task(execution, step)
+            elif step.step_type == 'notification':
+                return self._process_notification(execution, step)
+            elif step.step_type == 'approval':
+                return self._process_approval(execution, step)
+        except WorkflowTerminationException as e:
+            execution.status = 'completed'
+            execution.ended_at = timezone.now()
+            
+            temp_logs = execution.logs
+            temp_logs.append({
+                "step_id": str(step.id),
+                "step_name": step.name,
+                "status": "completed",
+                "info": "Workflow terminated normally."
             })
+            execution.logs = temp_logs
+            execution.save()
+            return execution
+        except Exception as e:
+            execution.status = 'failed'
+            execution.ended_at = timezone.now()
+            
+            temp_logs = execution.logs
+            temp_logs.append({
+                "step_id": str(step.id),
+                "step_name": step.name,
+                "status": "failed",
+                "error": str(e)
+            })
+            execution.logs = temp_logs
             execution.save()
             return execution
 
-        self.process_step(execution, start_step)
-        return execution
+    def _evaluate_rules(self, execution, step, eval_data=None):
+        engine = RuleEngine()
+        data_to_eval = eval_data if eval_data else execution.data
+        return engine.evaluate(step.rules.all(), data_to_eval)
 
-    # ─────────────────────────────────────────────────────
-    # METHOD 2: process_step
-    # ─────────────────────────────────────────────────────
-
-    def process_step(self, execution, step):
-        """
-        Process a single workflow step.
-        Handles task, approval, and notification step types.
-        Implements loop prevention via iteration_count.
-        """
-        # ── STEP 1: LOOP PREVENTION CHECK ──────────────────
-        execution.iteration_count += 1
-        execution.current_step_id = step.id
-        execution.save(update_fields=['iteration_count', 'current_step_id'])
-
-        if execution.iteration_count > execution.max_iterations:
-            termination_log = {
-                'error': 'Max iterations exceeded',
-                'iteration_count': execution.iteration_count,
-                'max_allowed': execution.max_iterations,
-                'terminated_at_step': step.name,
-                'timestamp': _now_iso(),
-            }
-            execution.logs = list(execution.logs) + [termination_log]
-            execution.status = 'failed'
-            execution.ended_at = django_timezone.now()
-            execution.save()
-            raise MaxIterationsException(
-                f'Workflow terminated: exceeded {execution.max_iterations} max iterations. '
-                f'Possible infinite loop detected.'
-            )
-
-        step_start_time = django_timezone.now()
-
-        # ── STEP 2: Log step start ──────────────────────────
-        step_log_entry = {
-            'step_id': str(step.id),
-            'step_name': step.name,
-            'step_type': step.step_type,
-            'status': 'started',
-            'started_at': step_start_time.isoformat(),
-            'action_by': None,
-            'action_at': None,
-            'comment': None,
-            'rule_matched': None,
-            'next_step_id': None,
-            'next_step_name': None,
-            'duration_seconds': None,
-            'rule_evaluation_log': [],
-        }
-        execution.logs = list(execution.logs) + [step_log_entry]
+    def _process_task(self, execution, step):
+        result = self._evaluate_rules(execution, step)
+        
+        temp_logs = execution.logs
+        temp_logs.append({
+            "step_id": str(step.id),
+            "step_name": step.name,
+            "status": "completed",
+            "rule_matched": result['matched_condition'],
+            "next_step_id": result['next_step_id'],
+            "rule_evaluation_log": result['evaluation_log']
+        })
+        execution.logs = temp_logs
         execution.save(update_fields=['logs'])
 
-        # ── STEP 3: Handle by step_type ────────────────────
-        if step.step_type == 'task':
-            self._process_task_step(execution, step, step_log_entry, step_start_time)
-
-        elif step.step_type == 'notification':
-            self._process_notification_step(execution, step, step_log_entry, step_start_time)
-
-        elif step.step_type == 'approval':
-            self._process_approval_step(execution, step, step_log_entry)
-
-    # ─────────────────────────────────────────────────────
-    # STEP TYPE HANDLERS
-    # ─────────────────────────────────────────────────────
-
-    def _process_task_step(self, execution, step, log_entry: Dict, start_time):
-        """Handle a task step — auto complete."""
-        from apps.rules.models import Rule
-
-        rules = Rule.objects.filter(step=step).order_by('priority')
-
-        try:
-            result = rule_engine.evaluate(rules, execution.data)
-        except WorkflowTerminationException as exc:
-            self._fail_execution(execution, step, log_entry, str(exc))
-            return
-
-        next_step_id = result.get('next_step_id')
-        rule_eval_log = result.get('evaluation_log', [])
-
-        # Update log entry
-        duration = (django_timezone.now() - start_time).total_seconds()
-        log_entry.update({
-            'status': 'completed',
-            'action_by': 'system',
-            'action_at': django_timezone.now().isoformat(),
-            'rule_matched': result.get('matched_condition'),
-            'next_step_id': next_step_id,
-            'duration_seconds': int(duration),
-            'rule_evaluation_log': rule_eval_log,
-        })
-        self._update_log_entry(execution, log_entry)
-
-        # Determine next step
-        if next_step_id is None:
+        if not result['next_step_id']:
             execution.status = 'completed'
-            execution.ended_at = django_timezone.now()
+            execution.ended_at = timezone.now()
             execution.save()
-            return
+            return execution
 
-        try:
-            from apps.steps.models import Step
-            next_step = Step.objects.get(id=next_step_id)
-            log_entry['next_step_name'] = next_step.name
-            self._update_log_entry(execution, log_entry)
-        except Exception:
-            self._fail_execution(execution, step, log_entry, f'Next step {next_step_id} not found.')
-            return
+        next_step = Step.objects.get(id=result['next_step_id'])
+        return self.process_step(execution, next_step)
 
-        # Recurse to next step
-        self.process_step(execution, next_step)
-
-    def _process_notification_step(self, execution, step, log_entry: Dict, start_time):
-        """Handle a notification step — queue Celery task, auto continue."""
-        from apps.rules.models import Rule
-        from apps.executions.tasks import send_notification_task
-
-        metadata = step.metadata or {}
-        channel = metadata.get('notification_channel', 'email')
+    def _process_notification(self, execution, step):
+        metadata = step.metadata
+        channel = metadata.get('notification_channel', metadata.get('channel', 'email'))
+        subject = metadata.get('subject', 'Workflow Notification')
         template = metadata.get('template', '')
         recipients = metadata.get('recipients', [])
 
-        # Queue the notification (don't wait for it)
-        try:
-            send_notification_task.delay(
-                str(execution.id),
-                str(step.id),
-                channel,
-                template,
-                recipients,
-                execution.data,
-            )
-        except Exception as exc:
-            logger.warning('Failed to queue notification task: %s', exc)
+        send_notification_task.delay(
+            execution.id, step.id, channel, template, recipients, execution.data, subject, execution.company.id
+        )
 
-        # Auto-complete, evaluate rules, move on
-        rules = Rule.objects.filter(step=step).order_by('priority')
-
-        try:
-            result = rule_engine.evaluate(rules, execution.data)
-        except WorkflowTerminationException as exc:
-            self._fail_execution(execution, step, log_entry, str(exc))
-            return
-
-        next_step_id = result.get('next_step_id')
-        duration = (django_timezone.now() - start_time).total_seconds()
-
-        log_entry.update({
-            'status': 'completed',
-            'action_by': 'system',
-            'action_at': django_timezone.now().isoformat(),
-            'rule_matched': result.get('matched_condition'),
-            'next_step_id': next_step_id,
-            'duration_seconds': int(duration),
-            'rule_evaluation_log': result.get('evaluation_log', []),
+        result = self._evaluate_rules(execution, step)
+        
+        temp_logs = execution.logs
+        temp_logs.append({
+            "step_id": str(step.id),
+            "step_name": step.name,
+            "status": "completed",
+            "rule_matched": result['matched_condition'],
+            "next_step_id": result['next_step_id'],
+            "rule_evaluation_log": result['evaluation_log']
         })
-        self._update_log_entry(execution, log_entry)
+        execution.logs = temp_logs
+        execution.save(update_fields=['logs'])
 
-        if next_step_id is None:
+        if not result['next_step_id']:
             execution.status = 'completed'
-            execution.ended_at = django_timezone.now()
+            execution.ended_at = timezone.now()
             execution.save()
-            return
+            return execution
 
-        try:
-            from apps.steps.models import Step
-            next_step = Step.objects.get(id=next_step_id)
-            log_entry['next_step_name'] = next_step.name
-            self._update_log_entry(execution, log_entry)
-            self.process_step(execution, next_step)
-        except Exception as exc:
-            self._fail_execution(execution, step, log_entry, str(exc))
+        next_step = Step.objects.get(id=result['next_step_id'])
+        return self.process_step(execution, next_step)
 
-    def _process_approval_step(self, execution, step, log_entry: Dict):
-        """Handle an approval step — pause and wait for human action."""
-        from apps.executions.tasks import check_step_timeout
+    def _process_approval(self, execution, step):
+        assignee_email = step.metadata.get('assignee_email')
+        timeout_hours = int(step.metadata.get('timeout_hours', 24))
 
-        metadata = step.metadata or {}
-        assignee = metadata.get('assignee_email', 'N/A')
-        timeout_hours = metadata.get('timeout_hours', 24)
-
-        log_entry.update({
-            'status': 'pending_approval',
-            'action_by': None,
-            'action_at': None,
-            'comment': f'Waiting for approval from {assignee}',
+        temp_logs = execution.logs
+        temp_logs.append({
+            "step_id": str(step.id),
+            "step_name": step.name,
+            "status": "pending_approval",
+            "comment": f"Waiting for {assignee_email}",
+            "action_at": timezone.now().isoformat()
         })
-        self._update_log_entry(execution, log_entry)
+        execution.logs = temp_logs
+        execution.assigned_to = assignee_email
+        execution.save(update_fields=['logs', 'assigned_to'])
 
-        execution.current_step_id = step.id
-        execution.save(update_fields=['current_step_id'])
+        check_step_timeout.apply_async(
+            args=[execution.id, step.id],
+            countdown=timeout_hours * 3600
+        )
+        return execution
 
-        # Queue timeout check
-        try:
-            check_step_timeout.apply_async(
-                args=[str(execution.id), str(step.id)],
-                countdown=timeout_hours * 3600,
-            )
-        except Exception as exc:
-            logger.warning('Failed to queue timeout task: %s', exc)
+    def handle_approval_action(self, execution_id, step_id, user, action, comment):
+        execution = Execution.objects.get(id=execution_id)
+        step = Step.objects.get(id=step_id)
 
-    # ─────────────────────────────────────────────────────
-    # METHOD 3: handle_approval_action
-    # ─────────────────────────────────────────────────────
+        # Validate user
+        if user:
+            assignee_email = step.metadata.get('assignee_email')
+            if user.email != assignee_email and user.role not in ['super_admin', 'admin']:
+                raise ValidationError("You do not have permission to approve this step.")
 
-    def handle_approval_action(
-        self,
-        execution_id: str,
-        step_id: str,
-        user,
-        action: str,
-        comment: str = '',
-    ):
-        """
-        Handle approve / reject / return action on an approval step.
-        """
-        from apps.executions.models import Execution
-        from apps.steps.models import Step
-        from apps.rules.models import Rule
-        from rest_framework.exceptions import ValidationError, PermissionDenied, NotFound
-
-        # Step 1: Get execution
-        try:
-            execution = Execution.objects.get(id=execution_id)
-        except Execution.DoesNotExist:
-            raise NotFound(f'Execution {execution_id} not found.')
-
-        # Step 2: Get current step
-        try:
-            step = Step.objects.get(id=step_id)
-        except Step.DoesNotExist:
-            raise NotFound(f'Step {step_id} not found.')
-
-        if str(execution.current_step_id) != str(step_id):
-            raise ValidationError({'detail': 'This step is not the current active step.'})
-
-        # Step 3: Validate user is assignee or admin
-        metadata = step.metadata or {}
-        assignee_email = metadata.get('assignee_email', '')
-        if user.role not in ('super_admin', 'admin') and user.email != assignee_email:
-            raise PermissionDenied(
-                f'Only {assignee_email} or admin can act on this approval.'
-            )
-
-        action_time = django_timezone.now()
-
-        # Step 4: Log the action
-        logs = list(execution.logs)
-        for entry in reversed(logs):
-            if entry.get('step_id') == str(step_id) and entry.get('status') == 'pending_approval':
-                entry.update({
-                    'status': action,
-                    'action_by': user.email,
-                    'action_at': action_time.isoformat(),
-                    'comment': comment,
-                })
-                break
-        execution.logs = logs
-
-        # Step 5: Build evaluation data with action context
+        # Update log
+        action_by = user.email if user else "system"
+        
+        temp_logs = execution.logs
+        temp_logs.append({
+            "step_id": str(step_id),
+            "step_name": step.name,
+            "status": action,
+            "action_by": action_by,
+            "action_at": timezone.now().isoformat(),
+            "comment": comment
+        })
+        execution.logs = temp_logs
+        execution.assigned_to = None
+        execution.save(update_fields=['logs', 'assigned_to'])
+        
         eval_data = {
             **execution.data,
-            'approved': action == 'approve',
-            'rejected': action == 'reject',
-            'returned': action == 'return',
-            'action': action,
-            'comment': comment,
+            "approved": action == 'approve',
+            "rejected": action == 'reject',
+            "returned": action == 'return',
+            "action": action
         }
 
-        # Step 6: Evaluate rules
-        rules = Rule.objects.filter(step=step).order_by('priority')
         try:
-            result = rule_engine.evaluate(rules, eval_data)
-        except WorkflowTerminationException as exc:
-            execution.status = 'failed'
-            execution.ended_at = action_time
-            execution.logs = list(execution.logs) + [{'error': str(exc), 'timestamp': _now_iso()}]
-            execution.save()
-            return execution
-
-        next_step_id = result.get('next_step_id')
-
-        # Update the log entry with rule results
-        for entry in execution.logs:
-            if entry.get('step_id') == str(step_id):
-                entry.update({
-                    'rule_matched': result.get('matched_condition'),
-                    'next_step_id': next_step_id,
-                    'rule_evaluation_log': result.get('evaluation_log', []),
-                })
-                if 'started_at' in entry:
-                    started = datetime.fromisoformat(entry['started_at'].replace('Z', '+00:00'))
-                    duration = (action_time - started).total_seconds()
-                    entry['duration_seconds'] = int(duration)
-                break
-
-        # Step 7: Determine next step
-        if next_step_id is None:
-            execution.status = 'completed'
-            execution.ended_at = action_time
-            execution.save()
-            return execution
-
-        execution.save(update_fields=['logs', 'status', 'ended_at'])
-
-        try:
-            from apps.steps.models import Step as StepModel
-            next_step = StepModel.objects.get(id=next_step_id)
-            self.process_step(execution, next_step)
-        except Exception as exc:
-            execution.status = 'failed'
-            execution.ended_at = django_timezone.now()
-            execution.logs = list(execution.logs) + [{'error': str(exc), 'timestamp': _now_iso()}]
-            execution.save()
-
-        return execution
-
-    # ─────────────────────────────────────────────────────
-    # METHOD 4: retry_execution
-    # ─────────────────────────────────────────────────────
-
-    def retry_execution(self, execution_id: str, user):
-        """
-        Retry a FAILED execution from the current (failed) step only.
-        NOT the entire workflow from beginning.
-        """
-        from apps.executions.models import Execution
-        from apps.steps.models import Step
-        from rest_framework.exceptions import ValidationError, NotFound
-
-        try:
-            execution = Execution.objects.get(id=execution_id)
-        except Execution.DoesNotExist:
-            raise NotFound(f'Execution {execution_id} not found.')
-
-        if execution.status != 'failed':
-            raise ValidationError({'detail': 'Only failed executions can be retried.'})
-
-        if not execution.current_step_id:
-            raise ValidationError({'detail': 'No current step to retry from.'})
-
-        try:
-            step = Step.objects.get(id=execution.current_step_id)
-        except Step.DoesNotExist:
-            raise ValidationError({'detail': f'Step {execution.current_step_id} not found.'})
-
-        execution.status = 'in_progress'
-        execution.retries += 1
-        execution.iteration_count = 0  # CRITICAL FIX
-        # Reset iteration_count so loop prevention
-        # doesn't immediately fail the retry.
-        # Without this, if execution failed at
-        # max_iterations=10, retry would instantly
-        # fail again since count was already at 10.
-        execution.logs = list(execution.logs) + [{
-            'action': 'retry',
-            'retry_number': execution.retries,
-            'retried_step': step.name,
-            'retried_by': user.email,
-            'retried_at': _now_iso(),
-        }]
-        execution.save()
-
-        self.process_step(execution, step)
-        return execution
-
-    # ─────────────────────────────────────────────────────
-    # METHOD 5: cancel_execution
-    # ─────────────────────────────────────────────────────
-
-    def cancel_execution(self, execution_id: str, user):
-        """
-        Cancel a running or pending execution.
-        """
-        from apps.executions.models import Execution
-        from rest_framework.exceptions import ValidationError, NotFound
-
-        try:
-            execution = Execution.objects.get(id=execution_id)
-        except Execution.DoesNotExist:
-            raise NotFound(f'Execution {execution_id} not found.')
-
-        if execution.status not in ('pending', 'in_progress'):
-            raise ValidationError({
-                'detail': f'Cannot cancel execution with status "{execution.status}".'
+            result = self._evaluate_rules(execution, step, eval_data=eval_data)
+            
+            temp_logs = execution.logs
+            temp_logs.append({
+                "step_id": str(step_id),
+                "step_name": step.name,
+                "status": "completed",
+                "rule_matched": result['matched_condition'],
+                "next_step_id": result['next_step_id'],
+                "rule_evaluation_log": result['evaluation_log']
             })
+            execution.logs = temp_logs
+            execution.save(update_fields=['logs'])
+
+            if not result['next_step_id']:
+                execution.status = 'completed'
+                execution.ended_at = timezone.now()
+                execution.save()
+                return execution
+
+            next_step = Step.objects.get(id=result['next_step_id'])
+            return self.process_step(execution, next_step)
+            
+        except WorkflowTerminationException:
+            execution.status = 'completed'
+            execution.ended_at = timezone.now()
+            execution.save()
+            return execution
+        except Exception as e:
+            execution.status = 'failed'
+            execution.ended_at = timezone.now()
+            
+            temp_logs = execution.logs
+            temp_logs.append({
+                "step_id": str(step.id),
+                "step_name": step.name,
+                "status": "failed",
+                "error": str(e)
+            })
+            execution.logs = temp_logs
+            execution.save()
+            return execution
+
+    def retry_execution(self, execution_id, user):
+        execution = Execution.objects.get(id=execution_id)
+        if execution.status != 'failed':
+            raise ValidationError("Only failed executions can be retried.")
+
+        execution.iteration_count = 0
+        execution.retries += 1
+        execution.status = 'in_progress'
+        
+        temp_logs = execution.logs
+        temp_logs.append({
+            "action": "retry",
+            "action_by": user.email,
+            "timestamp": timezone.now().isoformat()
+        })
+        execution.logs = temp_logs
+        execution.save(update_fields=['logs', 'iteration_count', 'retries', 'status'])
+
+        step = Step.objects.get(id=execution.current_step_id)
+        return self.process_step(execution, step)
+
+    def cancel_execution(self, execution_id, user):
+        execution = Execution.objects.get(id=execution_id)
+        if execution.status not in ['pending', 'in_progress']:
+            raise ValidationError("Only pending or in_progress executions can be canceled.")
 
         execution.status = 'canceled'
-        execution.ended_at = django_timezone.now()
-        execution.logs = list(execution.logs) + [{
-            'action': 'canceled',
-            'canceled_by': user.email,
-            'canceled_at': _now_iso(),
-            'reason': 'User manually canceled',
-        }]
+        execution.ended_at = timezone.now()
+        
+        temp_logs = execution.logs
+        temp_logs.append({
+            "action": "canceled",
+            "action_by": user.email,
+            "timestamp": timezone.now().isoformat()
+        })
+        execution.logs = temp_logs
         execution.save()
         return execution
-
-    # ─────────────────────────────────────────────────────
-    # PRIVATE HELPERS
-    # ─────────────────────────────────────────────────────
-
-    def _fail_execution(self, execution, step, log_entry: Dict, error_msg: str):
-        """Mark execution as failed with error details."""
-        log_entry.update({
-            'status': 'failed',
-            'error': error_msg,
-            'timestamp': _now_iso(),
-        })
-        self._update_log_entry(execution, log_entry)
-        execution.status = 'failed'
-        execution.ended_at = django_timezone.now()
-        execution.save()
-
-    def _update_log_entry(self, execution, log_entry: Dict):
-        """Update a specific log entry in the execution's logs."""
-        step_id = log_entry.get('step_id')
-        logs = list(execution.logs)
-        for i, entry in enumerate(logs):
-            if entry.get('step_id') == step_id and entry.get('started_at') == log_entry.get('started_at'):
-                logs[i] = log_entry
-                break
-        execution.logs = logs
-        execution.save(update_fields=['logs'])

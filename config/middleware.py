@@ -1,60 +1,26 @@
-"""
-Company isolation middleware.
-Injects user's company into every authenticated request,
-ensuring automatic multi-tenant data isolation.
-"""
-import logging
-from django.utils.functional import SimpleLazyObject
+import jwt
+from django.conf import settings
+from django.utils.deprecation import MiddlewareMixin
+from django.contrib.auth import get_user_model
 
-logger = logging.getLogger(__name__)
-
-
-def get_user_company(request):
-    """Retrieve the company from the authenticated user."""
-    if not hasattr(request, '_cached_user_company'):
-        user = request.user
-        if user and user.is_authenticated:
-            request._cached_user_company = getattr(user, 'company', None)
-        else:
-            request._cached_user_company = None
-    return request._cached_user_company
-
-
-class CompanyMiddleware:
-    """
-    Middleware that injects the authenticated user's company
-    into the request object for automatic data isolation.
-
-    Usage in views:
-        request.user_company  → Company object or None
-        request.company_id    → UUID or None
-    """
-
-    def __init__(self, get_response):
-        self.get_response = get_response
-
-    def __call__(self, request):
-        # Inject company lazily (only accessed if needed)
-        request.user_company = SimpleLazyObject(lambda: get_user_company(request))
-
-        response = self.get_response(request)
-        return response
-
+class CompanyMiddleware(MiddlewareMixin):
+    def process_request(self, request):
+        request.user_company = None
+        auth_header = request.META.get('HTTP_AUTHORIZATION', '')
+        if auth_header.startswith('Bearer '):
+            token = auth_header.split(' ')[1]
+            try:
+                payload = jwt.decode(token, settings.SECRET_KEY, algorithms=['HS256'])
+                user_id = payload.get('user_id')
+                if user_id:
+                    User = get_user_model()
+                    user = User.objects.get(id=user_id)
+                    request.user_company = user.company
+            except Exception:
+                pass
 
 class CompanyQuerysetMixin:
-    """
-    Mixin for ViewSets that automatically filters querysets
-    to the authenticated user's company.
-
-    Usage:
-        class MyViewSet(CompanyQuerysetMixin, viewsets.ModelViewSet):
-            queryset = MyModel.objects.all()
-            # queryset is automatically filtered by company
-    """
-
     def get_queryset(self):
-        qs = super().get_queryset()
-        user = self.request.user
-        if user and user.is_authenticated and hasattr(user, 'company') and user.company:
-            return qs.filter(company=user.company)
-        return qs.none()
+        if hasattr(self.request, 'user') and self.request.user.is_authenticated:
+            return super().get_queryset().filter(company=self.request.user.company)
+        return super().get_queryset().none()

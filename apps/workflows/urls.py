@@ -1,12 +1,9 @@
-"""
-Workflow URL patterns.
-"""
 from django.urls import path, include
 from rest_framework.routers import DefaultRouter
-from .views import WorkflowViewSet
+from apps.workflows.views import WorkflowViewSet
 
 router = DefaultRouter()
-router.register('workflows', WorkflowViewSet, basename='workflow')
+router.register(r'', WorkflowViewSet, basename='workflow')
 
 urlpatterns = [
     path('', include(router.urls)),

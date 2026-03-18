@@ -1,232 +1,137 @@
 <template>
-  <div>
-    <div class="page-header">
+  <div class="audit-page">
+    <div class="flex items-center justify-between mb-6">
       <div>
-        <h1 class="page-title">Audit Log</h1>
-        <p class="page-subtitle">Track all workflow executions for compliance</p>
+        <h1 class="text-bold m-0" style="font-size: 24px;">Audit Log</h1>
+        <p class="text-gray m-0 mt-1">Track all workflow executions and system activity</p>
       </div>
     </div>
 
-    <!-- Stats Cards -->
-    <div class="stats-grid" v-if="execStore.auditStats">
-      <div class="stat-card">
-        <div class="stat-label">Total Executions</div>
-        <div class="stat-value" style="color:var(--text-primary)">{{ execStore.auditStats.total || 0 }}</div>
-      </div>
-      <div class="stat-card">
-        <div class="stat-label">Completed</div>
-        <div class="stat-value" style="color:var(--success-text)">{{ execStore.auditStats.completed || 0 }}</div>
-        <div class="stat-sub" v-if="execStore.auditStats.total">
-          {{ Math.round((execStore.auditStats.completed / execStore.auditStats.total) * 100) }}% success
-        </div>
-      </div>
-      <div class="stat-card">
-        <div class="stat-label">Failed</div>
-        <div class="stat-value" style="color:var(--error-text)">{{ execStore.auditStats.failed || 0 }}</div>
-      </div>
-      <div class="stat-card">
-        <div class="stat-label">Pending / Active</div>
-        <div class="stat-value" style="color:var(--warning-text)">
-          {{ (execStore.auditStats.pending || 0) + (execStore.auditStats.in_progress || 0) }}
-        </div>
-      </div>
+    <!-- Stats Summary -->
+    <!-- Stats Summary -->
+    <div v-if="stats" class="grid grid-cols-4 gap-6 mb-8">
+       <div class="card glass p-6 shadow-hover text-center">
+         <div class="text-xs text-muted uppercase text-bold mb-2 letter-spacing-1">Activity Stream</div>
+         <div class="text-bold text-3xl letter-spacing-tight">{{ stats.total }}</div>
+         <div class="text-xs text-gray mt-1">Total Executions</div>
+       </div>
+       <div class="card glass p-6 shadow-hover text-center border-b-amber">
+         <div class="text-xs text-muted uppercase text-bold mb-2 letter-spacing-1">Live Cycles</div>
+         <div class="text-bold text-3xl text-amber letter-spacing-tight">{{ stats.in_progress + stats.pending }}</div>
+         <div class="text-xs text-gray mt-1">Active Now</div>
+       </div>
+       <div class="card glass p-6 shadow-hover text-center border-b-green">
+         <div class="text-xs text-muted uppercase text-bold mb-2 letter-spacing-1">Success Rate</div>
+         <div class="text-bold text-3xl text-green letter-spacing-tight">{{ stats.completed }}</div>
+         <div class="text-xs text-gray mt-1">Finalized</div>
+       </div>
+       <div class="card glass p-6 shadow-hover text-center border-b-red">
+         <div class="text-xs text-muted uppercase text-bold mb-2 letter-spacing-1">Terminations</div>
+         <div class="text-bold text-3xl text-red letter-spacing-tight">{{ stats.failed }}</div>
+         <div class="text-xs text-gray mt-1">Failed Runs</div>
+       </div>
     </div>
 
-    <!-- Filters -->
-    <div class="filter-bar">
-      <input v-model="filters.date_from" type="date" class="form-input" style="width:150px" />
-      <input v-model="filters.date_to" type="date" class="form-input" style="width:150px" />
-      <select v-model="filters.status" class="form-input form-select" style="width:160px">
-        <option value="">All Status</option>
-        <option value="completed">Completed</option>
-        <option value="failed">Failed</option>
-        <option value="pending">Pending</option>
-        <option value="in_progress">In Progress</option>
-        <option value="canceled">Canceled</option>
-      </select>
-      <input v-model="filters.search" class="form-input flex-grow" placeholder="Search execution ID..." />
-      <button class="btn btn-primary btn-sm" @click="loadAudit">Apply</button>
-      <button class="btn btn-ghost btn-sm" @click="resetFilters">Reset</button>
-    </div>
-
-    <!-- Table -->
-    <div class="table-card">
-      <div class="table-wrap">
+    <div class="card glass p-0 overflow-hidden shadow-hover">
+      <div v-if="store.loading" class="p-12 text-center"><span class="spinner">🌀</span> Loading audit logs...</div>
+      <div v-else class="table-container">
         <table>
           <thead>
             <tr>
-              <th>EXEC ID</th><th>WORKFLOW</th><th>VERSION</th>
-              <th>STATUS</th><th>STARTED BY</th>
-              <th>START TIME</th><th>END TIME</th>
-              <th>DURATION</th><th>ACTIONS</th>
+              <th class="uppercase letter-spacing-1 text-xs px-6 py-4">Trace ID</th>
+              <th class="uppercase letter-spacing-1 text-xs px-6 py-4">Workflow Engine</th>
+              <th class="uppercase letter-spacing-1 text-xs px-6 py-4">Current state</th>
+              <th class="uppercase letter-spacing-1 text-xs px-6 py-4">Originator</th>
+              <th class="uppercase letter-spacing-1 text-xs px-6 py-4">Performance</th>
+              <th class="uppercase letter-spacing-1 text-xs px-6 py-4">Interaction</th>
             </tr>
           </thead>
           <tbody>
-            <template v-if="execStore.loading">
-              <tr v-for="i in 5" :key="i">
-                <td v-for="j in 9" :key="j"><div class="skeleton skel-text"></div></td>
-              </tr>
-            </template>
-            <template v-else-if="execStore.executions.length">
-              <tr
-                v-for="ex in execStore.executions"
-                :key="ex.id"
-                :class="ex.status === 'completed' ? 'row-success' : ex.status === 'failed' ? 'row-error' : ''"
-              >
-                <td><span class="mono" :title="ex.id">{{ ex.id?.slice(0, 8) }}...</span></td>
-                <td><span style="font-weight:600">{{ ex.workflow_name || '—' }}</span></td>
-                <td><span class="badge badge-indigo">v{{ ex.workflow_version }}</span></td>
-                <td><StatusBadge :status="ex.status" /></td>
-                <td class="text-sm text-secondary">{{ ex.triggered_by_email || '—' }}</td>
-                <td class="text-sm text-secondary">{{ fmtDT(ex.started_at) }}</td>
-                <td class="text-sm text-secondary">{{ fmtDT(ex.ended_at) }}</td>
-                <td class="text-sm text-secondary">{{ calcDuration(ex.started_at, ex.ended_at) }}</td>
-                <td>
-                  <div class="flex gap-2">
-                    <button
-                      class="btn btn-ghost btn-sm"
-                      style="color:var(--accent-indigo);border-color:var(--accent-indigo)"
-                      @click="openDrawer(ex)"
-                    >View Logs</button>
-                    <button v-if="ex.status === 'failed'" class="btn btn-amber btn-sm" @click="handleRetry(ex)">🔄 Retry</button>
-                  </div>
-                </td>
-              </tr>
-            </template>
-            <tr v-else>
-              <td colspan="9">
-                <div class="empty-state">
-                  <h3>No executions found</h3>
-                  <p>Execute a workflow to see logs here</p>
-                </div>
+            <tr v-for="ex in store.executions" :key="ex.id" class="hover-row">
+              <td class="px-6 py-4">
+                <span class="code-font text-xs bg-slate-100 p-1 px-2 rounded-md">{{ ex.id.split('-')[0] }}</span>
               </td>
+              <td class="px-6 py-4">
+                <div class="text-bold text-sm">{{ ex.workflow_name }}</div>
+                <div class="text-xs text-muted mono-font mt-0.5">Deployment v{{ ex.workflow_version }}</div>
+              </td>
+              <td class="px-6 py-4"><StatusBadge :status="ex.status" /></td>
+              <td class="px-6 py-4 text-sm font-semibold">{{ ex.triggered_by_email }}</td>
+              <td class="px-6 py-4 text-sm text-indigo font-bold">{{ getDuration(ex.started_at, ex.ended_at) }}</td>
+              <td class="px-6 py-4">
+                <router-link :to="`/workflows/${ex.id}/execute`" class="btn btn-outlined text-xs py-2" style="text-decoration: none;">Deep Trace</router-link>
+              </td>
+            </tr>
+            <tr v-if="store.executions.length === 0">
+              <td colspan="6" class="text-center text-gray p-12 italic">No operational records within the current audit window.</td>
             </tr>
           </tbody>
         </table>
       </div>
-
-      <!-- Pagination -->
-      <div class="pagination" v-if="totalCount > 0">
-        <span class="pagination-info">
-          Showing {{ execStore.executions.length }} of {{ totalCount }} executions
-        </span>
-        <div class="pagination-btns">
-          <button class="pag-btn" :disabled="page === 1" @click="page--; loadAudit()">←</button>
-          <button
-            v-for="p in Math.min(5, Math.ceil(totalCount / 10))"
-            :key="p"
-            :class="['pag-btn', page === p ? 'active' : '']"
-            @click="page = p; loadAudit()"
-          >{{ p }}</button>
-          <button class="pag-btn" :disabled="page >= Math.ceil(totalCount / 10)" @click="page++; loadAudit()">→</button>
-        </div>
-      </div>
-    </div>
-
-    <!-- Side Drawer -->
-    <div v-if="showDrawer">
-      <div class="drawer-backdrop" @click="showDrawer = false"></div>
-      <transition name="slide">
-        <div class="drawer">
-          <div class="drawer-header">
-            <div class="flex items-center justify-between">
-              <div>
-                <h3 style="font-size:16px;font-weight:700">Execution Logs</h3>
-                <p class="mono text-sm text-muted">
-                  {{ selectedExec?.id?.slice(0, 12) }}... — {{ selectedExec?.workflow_name }} v{{ selectedExec?.workflow_version }}
-                </p>
-              </div>
-              <button class="btn-icon" @click="showDrawer = false">✕</button>
-            </div>
-            <div class="flex gap-3" style="margin-top:10px">
-              <StatusBadge :status="selectedExec?.status" />
-              <span class="text-sm text-secondary">{{ calcDuration(selectedExec?.started_at, selectedExec?.ended_at) }}</span>
-              <span class="text-sm text-secondary">by {{ selectedExec?.triggered_by_email }}</span>
-            </div>
-          </div>
-          <div class="drawer-body">
-            <LogTimeline :logs="drawerLogs" />
-          </div>
-          <div class="drawer-footer">
-            <button
-              v-if="selectedExec?.status === 'failed'"
-              class="btn btn-amber flex-1"
-              @click="handleRetry(selectedExec); showDrawer = false"
-            >🔄 Retry Failed Step</button>
-            <button class="btn btn-ghost flex-1" @click="showDrawer = false">Close</button>
-          </div>
-        </div>
-      </transition>
     </div>
   </div>
 </template>
 
 <script setup>
-import { ref, reactive, onMounted } from 'vue'
+import { computed, onMounted, onUnmounted } from 'vue'
 import { useExecutionStore } from '@/stores/execution'
-import { useNotificationStore } from '@/stores/notification'
 import StatusBadge from '@/components/common/StatusBadge.vue'
-import LogTimeline from '@/components/execution/LogTimeline.vue'
-import executionService from '@/services/execution.service'
 
-const execStore = useExecutionStore()
-const notif = useNotificationStore()
+const store = useExecutionStore()
+const stats = computed(() => store.auditStats)
+let refreshInterval = null
 
-const page = ref(1)
-const totalCount = ref(0)
-const filters = reactive({ date_from: '', date_to: '', status: '', search: '' })
-const showDrawer = ref(false)
-const selectedExec = ref(null)
-const drawerLogs = ref([])
+const loadData = () => store.fetchAuditLog()
 
-async function loadAudit() {
-  const params = { page: page.value }
-  if (filters.status)    params.status    = filters.status
-  if (filters.search)    params.search    = filters.search
-  if (filters.date_from) params.date_from = filters.date_from
-  if (filters.date_to)   params.date_to   = filters.date_to
-  const res = await execStore.fetchAuditLog(params)
-  totalCount.value = res.count || 0
+onMounted(() => {
+  loadData()
+  refreshInterval = setInterval(loadData, 30000)
+})
+
+onUnmounted(() => {
+  clearInterval(refreshInterval)
+})
+
+const getDuration = (start, end) => {
+  if (!start) return '—'
+  const s = new Date(start)
+  const e = end ? new Date(end) : new Date()
+  const diffSec = Math.floor((e - s) / 1000)
+  
+  if (diffSec < 60) return `${diffSec}s`
+  const m = Math.floor(diffSec / 60)
+  const sec = diffSec % 60
+  if (m < 60) return `${m}m ${sec}s`
+  const h = Math.floor(m / 60)
+  return `${h}h ${m % 60}m`
 }
-
-function resetFilters() {
-  Object.assign(filters, { date_from: '', date_to: '', status: '', search: '' })
-  page.value = 1
-  loadAudit()
-}
-
-async function openDrawer(ex) {
-  selectedExec.value = ex
-  showDrawer.value = true
-  drawerLogs.value = []
-  try {
-    const res = await executionService.getOne(ex.id)
-    drawerLogs.value = res.data.logs || []
-  } catch { drawerLogs.value = [] }
-}
-
-async function handleRetry(ex) {
-  try {
-    await execStore.retryExecution(ex.id)
-    notif.success('Retrying execution!')
-    await loadAudit()
-  } catch (e) {
-    notif.error(e.response?.data?.detail || 'Retry failed')
-  }
-}
-
-function fmtDT(d) {
-  if (!d) return '—'
-  return new Date(d).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
-}
-
-function calcDuration(start, end) {
-  if (!start || !end) return '—'
-  const secs = Math.floor((new Date(end) - new Date(start)) / 1000)
-  if (secs < 60)   return `${secs}s`
-  if (secs < 3600) return `${Math.floor(secs / 60)}m ${secs % 60}s`
-  return `${Math.floor(secs / 3600)}h ${Math.floor((secs % 3600) / 60)}m`
-}
-
-onMounted(loadAudit)
 </script>
+
+<style scoped>
+.grid { display: grid; }
+.grid-cols-4 { grid-template-columns: repeat(4, 1fr); }
+.gap-6 { gap: 24px; }
+
+.text-3xl { font-size: 30px; }
+.letter-spacing-tight { letter-spacing: -1px; }
+.letter-spacing-1 { letter-spacing: 1px; }
+
+.table-container { overflow-x: auto; }
+.hover-row:hover { background: rgba(0,0,0,0.01); }
+
+.code-font { font-family: 'JetBrains Mono', monospace; }
+.mono-font { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; }
+
+.text-green { color: var(--accent-green); }
+.text-red { color: var(--accent-red); }
+.text-amber { color: var(--accent-amber); }
+.text-indigo { color: var(--accent-indigo); }
+.text-muted { color: var(--text-muted); }
+
+.border-b-green { border-bottom: 4px solid var(--accent-green); }
+.border-b-red { border-bottom: 4px solid var(--accent-red); }
+.border-b-amber { border-bottom: 4px solid var(--accent-amber); }
+
+.uppercase { text-transform: uppercase; }
+.text-xs { font-size: 11px; }
+</style>

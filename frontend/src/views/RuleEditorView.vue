@@ -1,281 +1,232 @@
 <template>
-  <div>
-    <div class="breadcrumb">
-      <router-link to="/workflows">Workflows</router-link>
-      <span class="sep">›</span>
-      <router-link :to="`/workflows/${workflowId}/edit`">{{ wfName }}</router-link>
-      <span class="sep">›</span>
-      <span class="cur">{{ stepName }} — Rules</span>
+  <div class="rules-page">
+    <div class="flex items-center mb-6 gap-4">
+      <router-link :to="`/workflows/${workflowId}/edit`" class="btn btn-ghost" style="padding: 6px;">←</router-link>
+      <div>
+        <h1 class="text-bold m-0" style="font-size: 20px;">Rules Configuration</h1>
+        <p class="text-gray m-0 text-sm mt-1">Step: {{ step?.name || 'Loading...' }}</p>
+      </div>
     </div>
 
-    <div style="margin-top:20px">
-      <div class="page-header">
-        <div>
-          <h1 class="page-title">Rules for {{ stepName }}</h1>
-          <span class="badge badge-info">{{ rules.length }} rule{{ rules.length !== 1 ? 's' : '' }}</span>
-        </div>
-        <button class="btn btn-primary" @click="openAdd">+ Add Rule</button>
+    <div class="card glass shadow-hover p-0 overflow-hidden">
+      <div class="flex items-center justify-between p-6 bg-white/50 backdrop-blur-sm">
+         <h2 class="text-bold m-0 uppercase letter-spacing-1" style="font-size: 14px;">Logic Branching Registry</h2>
+         <button class="btn btn-primary px-6" @click="openModal()">+ Add Logic Branch</button>
       </div>
 
-      <div class="table-card">
+      <div class="table-container">
         <table>
           <thead>
-            <tr><th>#</th><th>PRIORITY</th><th>CONDITION</th><th>NEXT STEP</th><th>ACTIONS</th></tr>
+            <tr>
+              <th class="uppercase letter-spacing-1 text-xs px-6 py-4">Execution Priority</th>
+              <th class="uppercase letter-spacing-1 text-xs px-6 py-4">Evaluation Condition</th>
+              <th class="uppercase letter-spacing-1 text-xs px-6 py-4">Target Destination</th>
+              <th class="uppercase letter-spacing-1 text-xs px-6 py-4">Operations</th>
+            </tr>
           </thead>
           <tbody>
-            <template v-if="rules.length">
-              <tr v-for="(rule, i) in rules" :key="rule.id">
-                <td class="text-muted text-sm">{{ i + 1 }}</td>
-                <td>
-                  <span
-                    :style="priStyle(rule.priority)"
-                    style="width:26px;height:26px;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;color:white"
-                  >{{ rule.priority }}</span>
-                </td>
-                <td>
-                  <span :class="['code-chip', rule.condition.toUpperCase() === 'DEFAULT' ? 'default' : '']">
-                    {{ rule.condition }}
-                  </span>
-                </td>
-                <td>
-                  <span v-if="rule.next_step_id" class="next-chip step">{{ getStepName(rule.next_step_id) }}</span>
-                  <span v-else class="next-chip end">END</span>
-                </td>
-                <td>
-                  <div class="flex gap-2">
-                    <button class="btn-icon indigo" @click="openEdit(rule)">
-                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                        <path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/>
-                        <path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/>
-                      </svg>
-                    </button>
-                    <button class="btn-icon danger" @click="openDeleteRule(rule)">
-                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                        <path d="M3 6h18M8 6V4h8v2M19 6l-1 14H6L5 6"/>
-                      </svg>
-                    </button>
-                  </div>
-                </td>
-              </tr>
-            </template>
-            <tr v-else>
-              <td colspan="5">
-                <div class="empty-state" style="padding:40px">
-                  <h3>No rules yet</h3>
-                  <p>Add rules to control workflow transitions</p>
-                  <button class="btn btn-outlined" @click="openAdd">+ Add Rule</button>
+            <tr v-for="rule in rules" :key="rule.id" class="hover-row">
+              <td class="px-6 py-4">
+                <div class="priority-badge indigo-gradient shadow-sm">{{ rule.priority }}</div>
+              </td>
+              <td class="px-6 py-4">
+                <code class="code-chip glass border border-indigo-200 text-indigo-700">{{ rule.condition }}</code>
+              </td>
+              <td class="px-6 py-4">
+                <span v-if="rule.next_step_id" class="font-semibold text-sm">{{ getStepName(rule.next_step_id) }}</span>
+                <span v-else class="text-muted text-xs uppercase letter-spacing-1 font-bold">终止 Terminal End</span>
+              </td>
+              <td class="px-6 py-4">
+                <div class="flex items-center gap-2">
+                  <button class="btn btn-outlined text-xs py-2 px-4" @click="openModal(rule)">Config</button>
+                  <button class="btn btn-outlined text-xs py-2 px-4 text-red" @click="deleteRule(rule.id)">Delete</button>
                 </div>
               </td>
             </tr>
+            <tr v-if="rules.length === 0">
+              <td colspan="4" class="text-center text-gray p-12 italic">No logic branches established. The engine will halt if no conditions match.</td>
+            </tr>
           </tbody>
         </table>
-        <div style="padding:12px 16px">
-          <div :class="['alert', hasDefault ? 'alert-warning' : 'alert-error']">
-            <span>{{ hasDefault ? '⚠️ DEFAULT rule handles unmatched conditions' : '❌ DEFAULT rule is missing! Add it as fallback.' }}</span>
-          </div>
-        </div>
       </div>
     </div>
 
     <!-- Rule Modal -->
-    <div v-if="showModal" class="modal-backdrop" @click.self="closeModal">
-      <div class="modal modal-lg">
-        <div class="modal-header">
-          <h3>{{ editingRule ? 'Edit Rule' : 'Add Rule' }}</h3>
-          <button class="btn-icon" @click="closeModal">✕</button>
-        </div>
-        <div class="modal-body">
-          <div class="form-group">
-            <label class="form-label">Priority</label>
-            <input v-model.number="ruleForm.priority" type="number" class="form-input" style="width:100px" min="1" />
-            <span class="form-hint">Lower number = evaluated first</span>
+    <div v-if="modal.show" class="modal-backdrop" @click="closeModal">
+      <div class="modal" @click.stop>
+        <h2 class="text-bold mb-4 mt-0">{{ modal.isEdit ? 'Edit Rule' : 'Add Rule' }}</h2>
+        <form @submit.prevent="saveRule">
+          <div class="mb-4">
+            <label class="text-sm text-bold mb-2 flex justify-between items-center">
+              Condition Statement
+              <span v-if="syntaxStatus === 'valid'" class="text-green text-xs">✓ Valid Syntax</span>
+              <span v-else-if="syntaxStatus === 'invalid'" class="text-red text-xs">✗ Invalid</span>
+              <button type="button" class="btn btn-ghost text-xs py-0 px-2" @click="validateSyntax">Verify Syntax</button>
+            </label>
+            <input type="text" v-model="form.condition" class="form-input code-font" placeholder="e.g. amount > 1000 && country == 'US' or DEFAULT" required />
+            <p class="text-xs text-gray mt-1">Use 'DEFAULT' as a fallback condition.</p>
           </div>
-
-          <div class="form-group">
-            <label class="form-label">Condition <span class="req">*</span></label>
-            <textarea
-              v-model="ruleForm.condition"
-              class="form-input form-textarea code-input"
-              placeholder="amount > 100 && country == 'US'"
-              rows="3"
-            ></textarea>
-            <div class="op-chips" style="margin-top:8px">
-              <button v-for="op in operators" :key="op" class="op-chip" @click="insertOp(op)">{{ op }}</button>
-            </div>
-            <div v-if="validation.valid === true" class="validation-bar valid" style="margin-top:8px">
-              ✅ Valid condition syntax
-            </div>
-            <div v-else-if="validation.valid === false" class="validation-bar invalid" style="margin-top:8px">
-              ❌ {{ validation.error }}
-            </div>
-          </div>
-
-          <div class="form-group">
-            <label class="form-label">Next Step</label>
-            <select v-model="ruleForm.next_step_id" class="form-input form-select">
-              <option value="">⛔ END — Terminate workflow</option>
-              <option v-for="s in allSteps" :key="s.id" :value="s.id">{{ s.name }}</option>
+          
+          <div class="mb-4">
+            <label class="text-sm text-bold mb-2">Next Step</label>
+            <select v-model="form.next_step_id" class="form-select">
+              <option :value="null">-- End Workflow --</option>
+              <option v-for="s in workflowSteps" :key="s.id" :value="s.id">{{ s.order }}: {{ s.name }}</option>
             </select>
           </div>
 
-          <p v-if="modalError" class="form-error-msg">{{ modalError }}</p>
-        </div>
-        <div class="modal-footer">
-          <button class="btn btn-ghost flex-1" @click="closeModal">Cancel</button>
-          <button
-            class="btn btn-primary flex-1"
-            :disabled="validation.valid === false || savingRule"
-            @click="saveRule"
-          >
-            <span v-if="savingRule" class="spinner"></span>
-            {{ savingRule ? 'Saving...' : 'Save Rule' }}
-          </button>
-        </div>
+          <div class="mb-6">
+            <label class="text-sm text-bold mb-2">Priority</label>
+            <input type="number" v-model.number="form.priority" class="form-input" min="1" required />
+            <p class="text-xs text-gray mt-1">Lower number = higher priority (evaluated first).</p>
+          </div>
+
+          <div class="flex justify-between">
+            <button type="button" class="btn btn-ghost" @click="closeModal">Cancel</button>
+            <button type="submit" class="btn btn-primary" :disabled="loading.save">Save Rule</button>
+          </div>
+        </form>
       </div>
     </div>
-
-    <!-- Delete Confirm Modal -->
-    <ConfirmModal
-      v-if="showDeleteModal"
-      title="Delete Rule?"
-      message="This rule will be permanently deleted."
-      confirmText="Delete Rule"
-      type="delete"
-      @confirm="confirmDeleteRule"
-      @cancel="showDeleteModal = false"
-    />
   </div>
 </template>
 
 <script setup>
-import { ref, reactive, computed, watch, onMounted } from 'vue'
+import { ref, reactive, onMounted, computed } from 'vue'
 import { useRoute } from 'vue-router'
 import ruleService from '@/services/rule.service'
-import stepService from '@/services/step.service'
+import { useWorkflowStore } from '@/stores/workflow'
 import { useNotificationStore } from '@/stores/notification'
-import ConfirmModal from '@/components/common/ConfirmModal.vue'
 
 const route = useRoute()
-const notif = useNotificationStore()
+const store = useWorkflowStore()
+const ns = useNotificationStore()
 
-const workflowId = route.params.workflowId
-const stepId = route.params.stepId
+const workflowId = computed(() => route.params.workflowId)
+const stepId = computed(() => route.params.stepId)
 
+const step = ref(null)
 const rules = ref([])
-const allSteps = ref([])
-const stepName = ref('Step')
-const wfName = ref('Workflow')
-const showModal = ref(false)
-const editingRule = ref(null)
-const showDeleteModal = ref(false)
-const deletingRule = ref(null)
-const savingRule = ref(false)
-const modalError = ref('')
-const validation = reactive({ valid: null, error: '' })
-const ruleForm = reactive({ condition: '', next_step_id: '', priority: 1 })
+const workflowSteps = ref([])
 
-const operators = ['==', '!=', '>', '<', '>=', '<=', '&&', '||', 'contains()', 'startsWith()', 'endsWith()', 'DEFAULT']
-const hasDefault = computed(() => rules.value.some(r => r.condition.toUpperCase() === 'DEFAULT'))
+const loading = reactive({ main: false, save: false })
+const syntaxStatus = ref(null)
 
-function priStyle(p) {
-  if (p === 1)  return 'background:#16A34A'
-  if (p === 2)  return 'background:#2563EB'
-  return 'background:#94A3B8'
-}
-
-function getStepName(id) {
-  return allSteps.value.find(s => s.id === id)?.name || id
-}
-
-let vTimer = null
-watch(() => ruleForm.condition, async (val) => {
-  clearTimeout(vTimer)
-  if (!val) { validation.valid = null; return }
-  vTimer = setTimeout(async () => {
-    try {
-      const res = await ruleService.validate({ condition: val })
-      validation.valid = res.data.valid
-      validation.error = res.data.error || ''
-    } catch { validation.valid = null }
-  }, 500)
-})
-
-function insertOp(op) {
-  ruleForm.condition += (ruleForm.condition.endsWith(' ') || !ruleForm.condition ? '' : ' ') + op + ' '
-}
-
-function openAdd() {
-  editingRule.value = null
-  ruleForm.condition = ''
-  ruleForm.next_step_id = ''
-  ruleForm.priority = rules.value.length + 1
-  validation.valid = null
-  modalError.value = ''
-  showModal.value = true
-}
-
-function openEdit(rule) {
-  editingRule.value = rule
-  ruleForm.condition = rule.condition
-  ruleForm.next_step_id = rule.next_step_id || ''
-  ruleForm.priority = rule.priority
-  validation.valid = null
-  modalError.value = ''
-  showModal.value = true
-}
-
-function closeModal() { showModal.value = false; editingRule.value = null }
-
-async function saveRule() {
-  modalError.value = ''
-  if (!ruleForm.condition.trim()) { modalError.value = 'Condition is required'; return }
-  savingRule.value = true
-  try {
-    const data = {
-      condition: ruleForm.condition,
-      next_step_id: ruleForm.next_step_id || null,
-      priority: ruleForm.priority,
-    }
-    if (editingRule.value) {
-      await ruleService.update(editingRule.value.id, data)
-      notif.success('Rule updated!')
-    } else {
-      await ruleService.create(stepId, data)
-      notif.success('Rule added!')
-    }
-    await loadRules()
-    closeModal()
-  } catch (e) {
-    modalError.value = e.response?.data?.detail || JSON.stringify(e.response?.data) || 'Save failed'
-  } finally {
-    savingRule.value = false
-  }
-}
-
-function openDeleteRule(rule) { deletingRule.value = rule; showDeleteModal.value = true }
-
-async function confirmDeleteRule() {
-  try {
-    await ruleService.delete(deletingRule.value.id)
-    notif.success('Rule deleted!')
-    showDeleteModal.value = false
-    await loadRules()
-  } catch {
-    notif.error('Delete failed')
-  }
-}
-
-async function loadRules() {
-  const res = await ruleService.getAll(stepId)
-  rules.value = res.data
-}
+const modal = reactive({ show: false, isEdit: false })
+const form = reactive({ id: null, condition: '', next_step_id: null, priority: 1 })
 
 onMounted(async () => {
-  await loadRules()
-  const stepsRes = await stepService.getAll(workflowId)
-  allSteps.value = stepsRes.data || []
-  const thisStep = allSteps.value.find(s => String(s.id) === String(stepId))
-  stepName.value = thisStep?.name || 'Step'
-  wfName.value = 'Workflow'
+  loading.main = true
+  try {
+    const wf = await store.fetchWorkflow(workflowId.value)
+    workflowSteps.value = wf.steps || []
+    step.value = workflowSteps.value.find(s => s.id === parseInt(stepId.value) || s.id === stepId.value)
+    
+    await loadRules()
+  } finally {
+    loading.main = false
+  }
 })
+
+const loadRules = async () => {
+  const res = await ruleService.getAll(stepId.value)
+  // Assumes backend sorted by priority
+  rules.value = res.data.results || res.data
+}
+
+const getStepName = (id) => {
+  const s = workflowSteps.value.find(x => String(x.id) === String(id))
+  return s ? s.name : 'Unknown'
+}
+
+const openModal = (r = null) => {
+  syntaxStatus.value = null
+  if (r) {
+    modal.isEdit = true
+    form.id = r.id
+    form.condition = r.condition
+    form.next_step_id = r.next_step_id
+    form.priority = r.priority
+  } else {
+    modal.isEdit = false
+    form.id = null
+    form.condition = ''
+    form.next_step_id = null
+    form.priority = rules.value.length + 1
+  }
+  modal.show = true
+}
+
+const closeModal = () => { modal.show = false }
+
+const validateSyntax = async () => {
+  if (!form.condition) return
+  if (form.condition === 'DEFAULT') {
+    syntaxStatus.value = 'valid'
+    return
+  }
+  try {
+    const res = await ruleService.validate({ condition: form.condition })
+    syntaxStatus.value = res.data.valid ? 'valid' : 'invalid'
+    if (!res.data.valid) ns.error(res.data.error || 'Syntax Error')
+  } catch (e) {
+    syntaxStatus.value = 'invalid'
+  }
+}
+
+const saveRule = async () => {
+  loading.save = true
+  try {
+    const payload = {
+      step: parseInt(stepId.value) || stepId.value,
+      condition: form.condition,
+      next_step_id: form.next_step_id,
+      priority: form.priority
+    }
+    if (modal.isEdit) {
+      await ruleService.update(form.id, payload)
+      ns.success('Rule updated')
+    } else {
+      await ruleService.create(payload)
+      ns.success('Rule created')
+    }
+    closeModal()
+    await loadRules()
+  } finally {
+    loading.save = false
+  }
+}
+
+const deleteRule = async (id) => {
+  if (confirm('Delete this rule?')) {
+    await ruleService.delete(id)
+    ns.success('Rule deleted')
+    await loadRules()
+  }
+}
 </script>
+
+<style scoped>
+.priority-badge {
+  width: 32px; height: 32px; border-radius: 8px;
+  display: flex; align-items: center; justify-content: center;
+  color: white; font-weight: 800; font-size: 14px;
+}
+.code-chip {
+  padding: 4px 10px; border-radius: 6px; font-family: 'JetBrains Mono', monospace;
+  font-size: 12px; font-weight: 600;
+}
+.table-container { overflow-x: auto; }
+.hover-row:hover { background: rgba(0,0,0,0.01); }
+
+.code-font { font-family: 'JetBrains Mono', monospace; }
+.text-green { color: var(--accent-green); }
+.text-red { color: var(--accent-red); }
+.text-xs { font-size: 11px; }
+.text-muted { color: var(--text-muted); }
+.uppercase { text-transform: uppercase; }
+.letter-spacing-1 { letter-spacing: 1px; }
+
+.border-indigo-200 { border-color: rgba(99, 102, 241, 0.2); }
+.text-indigo-700 { color: var(--accent-indigo); }
+</style>

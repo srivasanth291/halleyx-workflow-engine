@@ -1,93 +1,72 @@
-"""
-Authentication models: Company and User.
-"""
 import uuid
 from django.db import models
-from django.contrib.auth.models import AbstractBaseUser, PermissionsMixin
 from django.utils.text import slugify
-from .managers import UserManager
-
+from django.contrib.auth.models import AbstractBaseUser, PermissionsMixin
+from apps.authentication.managers import CustomUserManager
 
 class Company(models.Model):
-    """
-    Multi-tenant company model.
-    All resources are scoped to a company.
-    """
-    PLAN_CHOICES = [
+    PLAN_CHOICES = (
         ('basic', 'Basic'),
         ('pro', 'Pro'),
         ('enterprise', 'Enterprise'),
-    ]
-
+    )
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     name = models.CharField(max_length=255)
     slug = models.SlugField(unique=True, blank=True)
-    plan = models.CharField(max_length=20, choices=PLAN_CHOICES, default='basic')
+    plan = models.CharField(max_length=20, choices=PLAN_CHOICES, default='pro')
     is_active = models.BooleanField(default=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
-    class Meta:
-        verbose_name = 'Company'
-        verbose_name_plural = 'Companies'
-        ordering = ['name']
-
     def save(self, *args, **kwargs):
         if not self.slug:
-            base_slug = slugify(self.name)
-            slug = base_slug
-            counter = 1
-            while Company.objects.filter(slug=slug).exclude(pk=self.pk).exists():
-                slug = f'{base_slug}-{counter}'
-                counter += 1
-            self.slug = slug
+            self.slug = slugify(self.name)
         super().save(*args, **kwargs)
 
     def __str__(self):
         return self.name
 
+class Role(models.Model):
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    company = models.ForeignKey(Company, on_delete=models.CASCADE, related_name='roles')
+    name = models.CharField(max_length=100)
+    is_admin = models.BooleanField(default=False)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        unique_together = ('company', 'name')
+
+    def __str__(self):
+        return f"{self.name} ({self.company.name})"
 
 class User(AbstractBaseUser, PermissionsMixin):
-    """
-    Custom user model with email as username.
-    Supports multi-tenant company isolation.
-    """
-    ROLE_CHOICES = [
-        ('super_admin', 'Super Admin'),
-        ('admin', 'Admin'),
-        ('employee', 'Employee'),
-    ]
-
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
-    company = models.ForeignKey(
-        Company,
-        on_delete=models.CASCADE,
-        related_name='users',
-        null=True,
-        blank=True,
-    )
+    company = models.ForeignKey(Company, on_delete=models.CASCADE, null=True, blank=True, related_name='users')
     email = models.EmailField(unique=True)
-    first_name = models.CharField(max_length=150)
-    last_name = models.CharField(max_length=150)
-    role = models.CharField(max_length=20, choices=ROLE_CHOICES, default='employee')
+    first_name = models.CharField(max_length=150, blank=True)
+    last_name = models.CharField(max_length=150, blank=True)
+    role = models.ForeignKey(Role, on_delete=models.SET_NULL, null=True, blank=True)
     is_active = models.BooleanField(default=True)
     is_staff = models.BooleanField(default=False)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
+    objects = CustomUserManager()
+
     USERNAME_FIELD = 'email'
-    REQUIRED_FIELDS = ['first_name', 'last_name']
-
-    objects = UserManager()
-
-    class Meta:
-        verbose_name = 'User'
-        verbose_name_plural = 'Users'
-        ordering = ['email']
-
-    @property
-    def full_name(self):
-        return f'{self.first_name} {self.last_name}'.strip()
+    REQUIRED_FIELDS = []
 
     def __str__(self):
         return self.email
+
+    @property
+    def full_name(self):
+        return f"{self.first_name} {self.last_name}".strip()
+
+    @property
+    def company_name(self):
+        return self.company.name if self.company else None
+
+    @property
+    def company_plan(self):
+        return self.company.plan if self.company else None
